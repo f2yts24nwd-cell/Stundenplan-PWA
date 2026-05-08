@@ -131,11 +131,18 @@ function findWeekOption(opts, kw, year, monday) {
   return null;
 }
 
-// Submits the Untis filter form with the correct week and "alle" class selection.
-// Returns a parsed Document on success, or null if no usable form was found.
+// Submits the Untis filter form changing ONLY the week selector.
+// All other dropdowns (Art, Element, etc.) keep their page-default values.
+// Returns { doc, debug } where doc is a parsed Document (or null) and
+// debug is a string describing what happened.
 async function submitFilterForm(baseDoc, settings, targetDate, hdrs) {
   const form = baseDoc.querySelector('form');
-  if (!form) return null;
+  const debugLines = [];
+
+  if (!form) {
+    debugLines.push('Kein <form> gefunden auf der Seite.');
+    return { doc: null, debug: debugLines.join('\n') };
+  }
 
   const monday = getMondayOf(targetDate);
   const kw = getISOWeekNumber(monday);
@@ -144,33 +151,26 @@ async function submitFilterForm(baseDoc, settings, targetDate, hdrs) {
   const method = (form.getAttribute('method') || 'get').toLowerCase();
   const action = form.getAttribute('action');
   const actionUrl = action ? new URL(action, settings.url).href : settings.url;
+  debugLines.push(`Formular: method=${method}, action=${actionUrl}`);
 
   const data = new URLSearchParams();
+  const selects = [...form.querySelectorAll('select[name]')];
+  debugLines.push(`Dropdowns: ${selects.map(s => `${s.name}="${s.value}"`).join(', ')}`);
 
   for (const el of form.elements) {
     if (!el.name || el.disabled) continue;
 
     if (el.tagName === 'SELECT') {
       const opts = [...el.options];
-
       if (isWeekSelector(el)) {
         const v = findWeekOption(opts, kw, year, monday);
-        data.set(el.name, v !== null ? v : (el.value || ''));
-        continue;
+        const chosen = v !== null ? v : (el.value || '');
+        data.set(el.name, chosen);
+        debugLines.push(`Woche-Select "${el.name}": "${el.value}" → "${chosen}" (KW${kw} ${monday.getDate()}.${monday.getMonth()+1}.${year})`);
+      } else {
+        // Keep page default – do NOT override Art/Element/other dropdowns
+        data.set(el.name, el.value || '');
       }
-
-      // Select "alle" / all-classes option if present (matches "- Alle -", "alle", etc.)
-      const alleOpt = opts.find(o =>
-        o.text.toLowerCase().includes('alle') ||
-        o.value.toLowerCase() === 'alle' ||
-        o.value === '0'
-      );
-      if (alleOpt) {
-        data.set(el.name, alleOpt.value);
-        continue;
-      }
-
-      data.set(el.name, el.value || '');
     } else if (el.type !== 'submit' && el.type !== 'button' && el.type !== 'reset' && el.type !== 'image') {
       if (el.type === 'checkbox' || el.type === 'radio') {
         if (el.checked) data.set(el.name, el.value);
@@ -180,41 +180,70 @@ async function submitFilterForm(baseDoc, settings, targetDate, hdrs) {
     }
   }
 
+  debugLines.push(`Sende: ${data.toString()}`);
+
   let res;
-  if (method === 'post') {
-    res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl), {
-      method: 'POST',
-      headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: data.toString(),
-    });
-  } else {
-    const sep = actionUrl.includes('?') ? '&' : '?';
-    res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl + sep + data.toString()), {
-      headers: hdrs,
-    });
+  try {
+    if (method === 'post') {
+      res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl), {
+        method: 'POST',
+        headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: data.toString(),
+      });
+    } else {
+      const sep = actionUrl.includes('?') ? '&' : '?';
+      res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl + sep + data.toString()), {
+        headers: hdrs,
+      });
+    }
+  } catch (err) {
+    debugLines.push(`Fetch-Fehler: ${err.message}`);
+    return { doc: null, debug: debugLines.join('\n') };
   }
 
-  if (!res || !res.ok) return null;
+  debugLines.push(`Antwort: HTTP ${res.status}`);
+  if (!res.ok) return { doc: null, debug: debugLines.join('\n') };
+
   const html = await res.text();
-  return new DOMParser().parseFromString(html, 'text/html');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const titles = doc.querySelectorAll('.mon_title');
+  const tables = doc.querySelectorAll('table');
+  debugLines.push(`mon_title-Elemente: ${titles.length}, Tabellen: ${tables.length}`);
+  if (titles.length) debugLines.push(`Erster Titel: "${titles[0].textContent.trim()}"`);
+
+  return { doc, debug: debugLines.join('\n') };
 }
 
 async function fetchPlan(settings, targetDate) {
   const hdrs = authHeaders(settings);
+  const debugLines = [];
 
   // Step 1: Load the base page to read the form structure
+  debugLines.push(`Lade: ${settings.url}`);
   const baseRes = await fetch(CORS_PROXY + encodeURIComponent(settings.url), { headers: hdrs });
+  debugLines.push(`Basis-Seite: HTTP ${baseRes.status}`);
   if (!baseRes.ok) throw new Error(`HTTP ${baseRes.status} – ${baseRes.statusText}`);
+
   const baseHtml = await baseRes.text();
   const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
+  const baseTitles = baseDoc.querySelectorAll('.mon_title');
+  debugLines.push(`Basis mon_title: ${baseTitles.length}`);
 
-  // Step 2: Submit the form with correct week + "alle" selection
-  let doc = await submitFilterForm(baseDoc, settings, targetDate, hdrs);
+  // Step 2: Submit the form with correct week
+  const { doc: formDoc, debug: formDebug } = await submitFilterForm(baseDoc, settings, targetDate, hdrs);
+  debugLines.push(formDebug);
 
-  // Fallback: parse the base page directly (shows current week, may be incomplete)
-  if (!doc) doc = baseDoc;
+  const doc = formDoc || baseDoc;
+  const entries = parseVertretungsplan(doc, settings.klasse, targetDate);
+  debugLines.push(`Geparste Einträge für Klasse "${settings.klasse}": ${entries.length}`);
 
-  return parseVertretungsplan(doc, settings.klasse, targetDate);
+  // Count all rows to see if class filter is the issue
+  const allTables = [...doc.querySelectorAll('table.mon_list, table')];
+  let totalRows = 0;
+  for (const t of allTables.slice(0, 5)) totalRows += t.querySelectorAll('tr').length;
+  debugLines.push(`Tabellenzeilen gesamt (erste 5): ${totalRows}`);
+
+  return { entries, debug: debugLines.join('\n') };
 }
 
 function cellText(cell) {
@@ -372,7 +401,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────
-function render(entries, targetDate) {
+function render(entries, targetDate, debug) {
   const content = document.getElementById('content');
   const monday = getMondayOf(targetDate);
 
@@ -429,7 +458,12 @@ function render(entries, targetDate) {
       </div>`;
   }).join('');
 
-  content.innerHTML = html || '<div class="loading">Keine Einträge gefunden.</div>';
+  const totalEntries = Object.values(byDate).flat().length;
+  if (totalEntries === 0 && debug) {
+    content.innerHTML = html + `<div class="debug-panel"><strong>Diagnose (0 Eintr&auml;ge):</strong><pre>${escHtml(debug)}</pre></div>`;
+  } else {
+    content.innerHTML = html || '<div class="loading">Keine Eintr&auml;ge gefunden.</div>';
+  }
 }
 
 function renderEntry(e) {
@@ -515,16 +549,15 @@ async function fetchAndRender() {
   updateWeekBar();
 
   try {
-    const entries = await fetchPlan(settings, targetDate);
+    const { entries, debug } = await fetchPlan(settings, targetDate);
     lastEntries = entries;
-    render(entries, targetDate);
+    render(entries, targetDate, debug);
     setLastUpdated(new Date());
     hideError();
   } catch (err) {
     showError('Fehler beim Laden: ' + err.message);
-    // Keep last data visible if available
     if (lastEntries !== null) {
-      render(lastEntries, targetDate);
+      render(lastEntries, targetDate, null);
     } else {
       document.getElementById('content').innerHTML = '<div class="loading">Keine Daten verfügbar.</div>';
     }

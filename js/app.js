@@ -437,84 +437,66 @@ function parseDayRows(rows, klasse, datumNorm) {
 
 // Main parser – returns { entries, debugLines }.
 // Strategy A: one big table where td.mon_title rows separate each day (Untis w00000.htm).
-// Strategy B: separate table.mon_title + table.mon_list pairs (some Untis versions).
-// Fallback:   scan all tables and try to infer dates from nearby text.
+// Main parser – returns { entries, debugLines }.
+// Scans ALL <tr> elements in document order. A row is a "title row" when:
+//   - the row itself has class mon_title, OR
+//   - the row contains a td/th.mon_title cell, OR
+//   - the row lives inside a table.mon_title ancestor.
+// This handles every known Untis HTML layout without needing to know the exact structure.
 function parseVertretungsplan(doc, klasse, targetDate) {
   const monday = getMondayOf(targetDate);
   const debugLines = [];
   const klasseLower = klasse.toLowerCase().trim();
 
-  // ── Strategy A: all days in ONE table ──────────────────────────────────────
-  const firstTitleTd = doc.querySelector('td.mon_title, th.mon_title');
-  if (firstTitleTd) {
-    const outerTable = firstTitleTd.closest('table');
-    if (outerTable) {
-      const allRows = [...outerTable.querySelectorAll('tr')];
-      let currentDatum = '';
-      let colMap = null;
-      const entries = [];
-
-      for (const row of allRows) {
-        const titleTd = row.querySelector('td.mon_title, th.mon_title');
-        if (titleTd) {
-          currentDatum = parseTitleDate(titleTd.textContent, monday);
-          debugLines.push(`Tag: "${titleTd.textContent.replace(/\s+/g,' ').trim().slice(0,50)}" → ${currentDatum || '(kein Datum)'}`);
-          colMap = null;
-          continue;
-        }
-        const headers = [...row.querySelectorAll('th')];
-        if (headers.length && !colMap) {
-          colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
-          continue;
-        }
-        const cells = [...row.querySelectorAll('td')];
-        if (!cells.length || cells.length === 1) continue;
-        if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
-        if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
-        const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
-        const fach = get('fach'), stattFach = get('stattfach');
-        const raum = get('raum'), stattRaum = get('stattraum');
-        const info = get('info');
-        entries.push({
-          datumNorm: currentDatum, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
-          fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
-          typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
-        });
-      }
-      if (entries.length > 0 || debugLines.length > 0) {
-        debugLines.push(`Strategy A: ${entries.length} Einträge`);
-        return { entries, debugLines };
-      }
-    }
-  }
-
-  // ── Strategy B: separate table.mon_title + table.mon_list per day ──────────
-  const titleEls = [...doc.querySelectorAll('.mon_title, span.mon_title, div.mon_title')];
-  if (titleEls.length > 0) {
+  // ── Strategy A: document-order scan ───────────────────────────────────────
+  if (doc.querySelector('.mon_title')) {
+    const allRows = [...doc.querySelectorAll('tr')];
+    let currentDatum = '';
+    let colMap = null;
     const entries = [];
-    for (const titleEl of titleEls) {
-      const datumNorm = parseTitleDate(titleEl.textContent, monday);
-      debugLines.push(`Tag (B): "${titleEl.textContent.replace(/\s+/g,' ').trim().slice(0,50)}" → ${datumNorm || '(kein Datum)'}`);
-      let table = null;
-      let cursor = titleEl.parentElement;
-      while (cursor && cursor.tagName !== 'BODY' && !table) {
-        table = cursor.querySelector('table.mon_list');
-        if (!table) {
-          let sib = cursor.nextElementSibling;
-          while (sib && !table) {
-            table = sib.tagName === 'TABLE' ? sib : sib.querySelector('table');
-            sib = sib.nextElementSibling;
-          }
-        }
-        cursor = cursor.parentElement;
+
+    for (const row of allRows) {
+      // Is this row a day-title separator?
+      const isTitleRow =
+        row.classList.contains('mon_title') ||
+        !!row.querySelector('td.mon_title, th.mon_title') ||
+        !!row.closest('table.mon_title, table.mon_head');
+
+      if (isTitleRow) {
+        const titleEl = row.querySelector('td.mon_title, th.mon_title') || row;
+        currentDatum = parseTitleDate(titleEl.textContent, monday);
+        debugLines.push(`Tag: "${titleEl.textContent.replace(/\s+/g,' ').trim().slice(0,50)}" → ${currentDatum || '(kein Datum)'}`);
+        colMap = null;
+        continue;
       }
-      if (table) entries.push(...parseDayRows([...table.querySelectorAll('tr')], klasse, datumNorm));
+
+      const headers = [...row.querySelectorAll('th')];
+      if (headers.length && !colMap) {
+        colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
+        continue;
+      }
+
+      const cells = [...row.querySelectorAll('td')];
+      if (!cells.length || cells.length === 1) continue;
+      if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
+      if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
+
+      const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
+      const fach = get('fach'), stattFach = get('stattfach');
+      const raum = get('raum'), stattRaum = get('stattraum');
+      const info = get('info');
+      entries.push({
+        datumNorm: currentDatum, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
+        fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
+        typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
+      });
     }
-    debugLines.push(`Strategy B: ${entries.length} Einträge`);
+
+    debugLines.push(`Strategy A: ${entries.length} Einträge`);
     return { entries, debugLines };
   }
 
-  // ── Fallback: scan all tables ───────────────────────────────────────────────
+  // ── Fallback: no mon_title markers – scan tables directly ──────────────────
   const entries = [];
   const allTables = [...doc.querySelectorAll('table.mon_list, table.list, table')];
   for (const table of allTables) {
@@ -590,12 +572,8 @@ function render(entries, targetDate, debug) {
       </div>`;
   }).join('');
 
-  const totalEntries = Object.values(byDate).flat().length;
-  if (totalEntries === 0 && debug) {
-    content.innerHTML = html + `<div class="debug-panel"><strong>Diagnose (0 Eintr&auml;ge):</strong><pre>${escHtml(debug)}</pre></div>`;
-  } else {
-    content.innerHTML = html || '<div class="loading">Keine Eintr&auml;ge gefunden.</div>';
-  }
+  const debugHtml = debug ? `<div class="debug-panel"><strong>Diagnose:</strong><pre>${escHtml(debug)}</pre></div>` : '';
+  content.innerHTML = (html || '<div class="loading">Keine Eintr&auml;ge gefunden.</div>') + debugHtml;
 }
 
 function renderEntry(e) {

@@ -325,7 +325,9 @@ async function fetchPlan(settings, targetDate) {
           debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch`);
           if (!r.ok || html.length < 200) continue;
           const d = new DOMParser().parseFromString(html, 'text/html');
-          entries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+          const parsed = parseVertretungsplan(d, settings.klasse, targetDate);
+          entries.push(...parsed.entries);
+          debugLines.push(...parsed.debugLines);
           loaded = true;
           break;
         } catch (e) {
@@ -405,75 +407,99 @@ function buildColMap(headers) {
   return map;
 }
 
-// Parse a single mon_list table, associating all rows with datumNorm.
-function parseMonListTable(table, klasse, datumNorm) {
+// Parse rows (array of <tr>) belonging to one day section.
+function parseDayRows(rows, klasse, datumNorm) {
   const klasseLower = klasse.toLowerCase().trim();
-  const rows = [...table.querySelectorAll('tr')];
   let colMap = null;
   const entries = [];
-
   for (const row of rows) {
-    const headerCells = [...row.querySelectorAll('th')];
-    if (headerCells.length && !colMap) {
-      colMap = buildColMap(headerCells.map(c => c.textContent.trim().toLowerCase()));
+    const headers = [...row.querySelectorAll('th')];
+    if (headers.length && !colMap) {
+      colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
       continue;
     }
     const cells = [...row.querySelectorAll('td')];
-    if (!cells.length) continue;
-
-    // Skip "Vertretungen sind nicht freigegeben" rows
-    if (cells.length === 1) continue;
-
+    if (!cells.length || cells.length === 1) continue;
     if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
-
-    if (!colMap) {
-      // Default LMG positional order
-      colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
-    }
-
+    if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
     const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
-    const fach      = get('fach');
-    const stattFach = get('stattfach');
-    const raum      = get('raum');
-    const stattRaum = get('stattraum');
-    const info      = get('info');
-
+    const fach = get('fach'), stattFach = get('stattfach');
+    const raum = get('raum'), stattRaum = get('stattraum');
+    const info = get('info');
     entries.push({
-      datumNorm,
-      datum:     get('datum'),
-      stunde:    get('stunde'),
-      klasse:    get('klasse'),
-      fach,
-      stattFach,
-      raum,
-      stattRaum,
-      vertreter: get('vertreter'),
-      info,
+      datumNorm, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
+      fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
       typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
     });
   }
   return entries;
 }
 
-// Main parser: finds per-day sections (mon_title + mon_list) in Untis HTML.
+// Main parser – returns { entries, debugLines }.
+// Strategy A: one big table where td.mon_title rows separate each day (Untis w00000.htm).
+// Strategy B: separate table.mon_title + table.mon_list pairs (some Untis versions).
+// Fallback:   scan all tables and try to infer dates from nearby text.
 function parseVertretungsplan(doc, klasse, targetDate) {
   const monday = getMondayOf(targetDate);
-  const entries = [];
+  const debugLines = [];
+  const klasseLower = klasse.toLowerCase().trim();
 
-  // Find all day title elements (Untis uses class="mon_title")
-  const titleEls = [...doc.querySelectorAll('.mon_title, td.mon_title, span.mon_title, div.mon_title')];
+  // ── Strategy A: all days in ONE table ──────────────────────────────────────
+  const firstTitleTd = doc.querySelector('td.mon_title, th.mon_title');
+  if (firstTitleTd) {
+    const outerTable = firstTitleTd.closest('table');
+    if (outerTable) {
+      const allRows = [...outerTable.querySelectorAll('tr')];
+      let currentDatum = '';
+      let colMap = null;
+      const entries = [];
 
+      for (const row of allRows) {
+        const titleTd = row.querySelector('td.mon_title, th.mon_title');
+        if (titleTd) {
+          currentDatum = parseTitleDate(titleTd.textContent, monday);
+          debugLines.push(`Tag: "${titleTd.textContent.replace(/\s+/g,' ').trim().slice(0,50)}" → ${currentDatum || '(kein Datum)'}`);
+          colMap = null;
+          continue;
+        }
+        const headers = [...row.querySelectorAll('th')];
+        if (headers.length && !colMap) {
+          colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
+          continue;
+        }
+        const cells = [...row.querySelectorAll('td')];
+        if (!cells.length || cells.length === 1) continue;
+        if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
+        if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
+        const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
+        const fach = get('fach'), stattFach = get('stattfach');
+        const raum = get('raum'), stattRaum = get('stattraum');
+        const info = get('info');
+        entries.push({
+          datumNorm: currentDatum, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
+          fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
+          typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
+        });
+      }
+      if (entries.length > 0 || debugLines.length > 0) {
+        debugLines.push(`Strategy A: ${entries.length} Einträge`);
+        return { entries, debugLines };
+      }
+    }
+  }
+
+  // ── Strategy B: separate table.mon_title + table.mon_list per day ──────────
+  const titleEls = [...doc.querySelectorAll('.mon_title, span.mon_title, div.mon_title')];
   if (titleEls.length > 0) {
+    const entries = [];
     for (const titleEl of titleEls) {
       const datumNorm = parseTitleDate(titleEl.textContent, monday);
-
-      // Walk up/sideways in DOM to find the nearest mon_list table
+      debugLines.push(`Tag (B): "${titleEl.textContent.replace(/\s+/g,' ').trim().slice(0,50)}" → ${datumNorm || '(kein Datum)'}`);
       let table = null;
       let cursor = titleEl.parentElement;
-      while (cursor && !table) {
+      while (cursor && cursor.tagName !== 'BODY' && !table) {
         table = cursor.querySelector('table.mon_list');
         if (!table) {
-          // Try next sibling of cursor
           let sib = cursor.nextElementSibling;
           while (sib && !table) {
             table = sib.tagName === 'TABLE' ? sib : sib.querySelector('table');
@@ -482,29 +508,28 @@ function parseVertretungsplan(doc, klasse, targetDate) {
         }
         cursor = cursor.parentElement;
       }
-
-      if (table) {
-        entries.push(...parseMonListTable(table, klasse, datumNorm));
-      }
+      if (table) entries.push(...parseDayRows([...table.querySelectorAll('tr')], klasse, datumNorm));
     }
-    return entries;
+    debugLines.push(`Strategy B: ${entries.length} Einträge`);
+    return { entries, debugLines };
   }
 
-  // Fallback: no mon_title found – scan all tables with header rows
+  // ── Fallback: scan all tables ───────────────────────────────────────────────
+  const entries = [];
   const allTables = [...doc.querySelectorAll('table.mon_list, table.list, table')];
   for (const table of allTables) {
     if (table.querySelectorAll('tr').length < 2) continue;
-    // Try to find a date near this table
     let datumNorm = '';
     let prev = table.previousElementSibling;
     for (let i = 0; i < 5 && prev; i++, prev = prev.previousElementSibling) {
       datumNorm = parseTitleDate(prev.textContent, monday);
       if (datumNorm) break;
     }
-    entries.push(...parseMonListTable(table, klasse, datumNorm));
-    if (entries.length > 0) break; // only first useful table in fallback
+    entries.push(...parseDayRows([...table.querySelectorAll('tr')], klasse, datumNorm));
+    if (entries.length > 0) break;
   }
-  return entries;
+  debugLines.push(`Fallback: ${entries.length} Einträge`);
+  return { entries, debugLines };
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────

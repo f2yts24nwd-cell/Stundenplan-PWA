@@ -331,6 +331,16 @@ async function fetchPlan(settings, targetDate) {
     }
   }
 
+  // ── Fetch untisscripts.js to learn doDisplayTimetable URL pattern ──────────
+  try {
+    const scriptUrl = baseDir + 'untisscripts.js';
+    const sr = await fetch(usedProxy + encodeURIComponent(scriptUrl), { headers: hdrs });
+    const scriptText = sr.ok ? await sr.text() : `HTTP ${sr.status}`;
+    debugLines.push(`untisscripts.js (1000 ch): "${scriptText.slice(0, 1000)}"`);
+  } catch (e) {
+    debugLines.push(`untisscripts.js Fehler: ${e.message}`);
+  }
+
   // ── Fetch content using topDir + week pattern: t{week}/subst_001.htm ──────
   if (frameEntries.length === 0 && navbarData.weekValue) {
     const { topDir, weekValue, classIdx } = navbarData;
@@ -358,21 +368,36 @@ async function fetchPlan(settings, targetDate) {
       }
     }
 
-    // If day files failed, try class-specific file (e.g. t19/w3.htm for 5C)
-    if (found === 0 && classIdx > 0) {
-      const typeCode = 'w'; // HP-Kla uses type "w"
-      const classFile = `${topDir}${weekValue}/${typeCode}${classIdx}.htm`;
-      debugLines.push(`Versuche Klassen-Datei: ${classFile}`);
-      try {
-        const r = await fetch(usedProxy + encodeURIComponent(new URL(classFile, settings.url).href), { headers: hdrs });
-        const html = r.ok ? await r.text() : '';
-        debugLines.push(`${classFile}: HTTP ${r.status}, ${html.length} chars`);
-        if (r.ok && html.length > 200) {
-          const d = new DOMParser().parseFromString(html, 'text/html');
-          frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+    // If day files failed, try various class-specific file patterns
+    if (found === 0) {
+      const klasseName = settings.klasse.toLowerCase().replace(/\s+/g, '');
+      const klassePadded = String(classIdx).padStart(3, '0');
+      const candidateFiles = classIdx > 0 ? [
+        `${topDir}${weekValue}/c${classIdx}.htm`,       // c3.htm (type=c, 1-based index)
+        `${topDir}${weekValue}/w${classIdx}.htm`,       // w3.htm (type=w)
+        `${topDir}${weekValue}/c${klassePadded}.htm`,   // c003.htm (zero-padded)
+        `${topDir}${weekValue}/${klasseName}.htm`,      // 5c.htm (class name)
+        `${topDir}${weekValue}/v_kla.htm`,              // some installations
+        `${topDir}${weekValue}/hp_kla.htm`,
+      ] : [
+        `${topDir}${weekValue}/v_kla.htm`,
+        `${topDir}${weekValue}/hp_kla.htm`,
+      ];
+
+      debugLines.push(`Versuche Klassen-Dateien: ${candidateFiles.join(', ')}`);
+      for (const classFile of candidateFiles) {
+        try {
+          const r = await fetch(usedProxy + encodeURIComponent(new URL(classFile, settings.url).href), { headers: hdrs });
+          const html = r.ok ? await r.text() : '';
+          debugLines.push(`${classFile}: HTTP ${r.status}, ${html.length} chars`);
+          if (r.ok && html.length > 200) {
+            const d = new DOMParser().parseFromString(html, 'text/html');
+            frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+            break;
+          }
+        } catch (e) {
+          debugLines.push(`${classFile}: Fehler ${e.message}`);
         }
-      } catch (e) {
-        debugLines.push(`${classFile}: Fehler ${e.message}`);
       }
     }
   }

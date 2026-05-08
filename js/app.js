@@ -298,7 +298,7 @@ async function fetchPlan(settings, targetDate) {
           navbarData.classNames = names;
         }
 
-        // Extract week select: find the option whose text matches target date or whose value === kw
+        // Extract week and type selects from the navbar form
         const kw = getISOWeekNumber(monday);
         for (const sel of fd.querySelectorAll('select')) {
           const opts = [...sel.options];
@@ -309,9 +309,25 @@ async function fetchPlan(settings, targetDate) {
             const match = opts.find(o => parseInt(o.value) === kw);
             if (match) navbarData.weekValue = match.value;
           }
+
+          // Type selector (e.g. "w"=HP-Kla, "c"=Lehrer)
+          if ((sel.name || '').toLowerCase() === 'type' && opts.length > 0) {
+            navbarData.typeCode = opts[0].value; // use first option as default type
+          }
         }
 
-        debugLines.push(`topDir="${navbarData.topDir}", weekValue="${navbarData.weekValue}", classIdx=${navbarData.classIdx}`);
+        // If class index still 0, try to read it from the element select
+        if (navbarData.classIdx === 0) {
+          const elSel = fd.querySelector('select[name="element"]');
+          if (elSel) {
+            const elOpts = [...elSel.options];
+            const elMatch = elOpts.find(o => o.text.trim().toLowerCase() === settings.klasse.toLowerCase());
+            if (elMatch) navbarData.classIdx = parseInt(elMatch.value, 10);
+          }
+        }
+
+        debugLines.push(`topDir="${navbarData.topDir}", weekValue="${navbarData.weekValue}", classIdx=${navbarData.classIdx}, typeCode="${navbarData.typeCode || 'w'}"`);
+        debugLines.push(`classNames: ${(navbarData.classNames || []).join(', ') || '(keine)'}`);
         continue;
       }
 
@@ -346,8 +362,11 @@ async function fetchPlan(settings, targetDate) {
     const { topDir, weekValue, classIdx } = navbarData;
     const kw = getISOWeekNumber(monday);
 
-    // Try all 5 day files for the target week
-    const dayFiles = [1,2,3,4,5].map(n => `${topDir}${weekValue}/subst_00${n}.htm`);
+    // n2str from untisscripts.js: pads to 5 digits → subst_00001.htm
+    const n2str = n => String(n).padStart(5, '0');
+
+    // Try all 5 day files for the target week (5-digit padding per n2str)
+    const dayFiles = [1,2,3,4,5].map(n => `${topDir}${weekValue}/subst_${n2str(n)}.htm`);
     debugLines.push(`Versuche Tagesdateien: ${dayFiles.join(', ')}`);
 
     let found = 0;
@@ -368,16 +387,19 @@ async function fetchPlan(settings, targetDate) {
       }
     }
 
-    // If day files failed, try various class-specific file patterns
+    // If day files failed, try class-specific file patterns
     if (found === 0) {
+      const typeCode = navbarData.typeCode || 'w';
       const klasseName = settings.klasse.toLowerCase().replace(/\s+/g, '');
-      const klassePadded = String(classIdx).padStart(3, '0');
       const candidateFiles = classIdx > 0 ? [
-        `${topDir}${weekValue}/c${classIdx}.htm`,       // c3.htm (type=c, 1-based index)
-        `${topDir}${weekValue}/w${classIdx}.htm`,       // w3.htm (type=w)
-        `${topDir}${weekValue}/c${klassePadded}.htm`,   // c003.htm (zero-padded)
-        `${topDir}${weekValue}/${klasseName}.htm`,      // 5c.htm (class name)
-        `${topDir}${weekValue}/v_kla.htm`,              // some installations
+        // n2str pattern (primary): w00003.htm
+        `${topDir}${weekValue}/${typeCode}${n2str(classIdx)}.htm`,
+        // short variants as fallback
+        `${topDir}${weekValue}/${typeCode}${classIdx}.htm`,
+        `${topDir}${weekValue}/c${n2str(classIdx)}.htm`,
+        `${topDir}${weekValue}/c${classIdx}.htm`,
+        `${topDir}${weekValue}/${klasseName}.htm`,
+        `${topDir}${weekValue}/v_kla.htm`,
         `${topDir}${weekValue}/hp_kla.htm`,
       ] : [
         `${topDir}${weekValue}/v_kla.htm`,

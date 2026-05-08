@@ -344,11 +344,24 @@ function cellText(cell) {
   return cell ? cell.textContent.replace(/\s+/g, ' ').trim() : '';
 }
 
-// Extract YYYY-MM-DD from a day title like "4.5.2026 Montag" or "Montag 4.5.2026"
-function parseTitleDate(text) {
-  const m = text.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
-  if (!m) return '';
-  return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+// Extract YYYY-MM-DD from a day title.
+// Handles: "8.5.2026 Freitag", "8.5. Freitag" (year from monday), "Freitag" (offset from monday).
+function parseTitleDate(text, monday) {
+  // Full date with 4-digit year: "8.5.2026"
+  let m = text.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  // Short date without year: "8.5." or "8.5. Freitag" — derive year from reference Monday
+  if (monday) {
+    m = text.match(/(\d{1,2})\.(\d{1,2})\./);
+    if (m) return `${monday.getFullYear()}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+    // Weekday name only: "Freitag" → offset from monday
+    const WD = ['montag','dienstag','mittwoch','donnerstag','freitag'];
+    const t = text.toLowerCase();
+    for (let i = 0; i < 5; i++) {
+      if (t.includes(WD[i])) return isoDateLocal(addDays(monday, i));
+    }
+  }
+  return '';
 }
 
 // Determine entry type from actual column values (LMG/Untis semantics):
@@ -452,7 +465,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
 
   if (titleEls.length > 0) {
     for (const titleEl of titleEls) {
-      const datumNorm = parseTitleDate(titleEl.textContent);
+      const datumNorm = parseTitleDate(titleEl.textContent, monday);
 
       // Walk up/sideways in DOM to find the nearest mon_list table
       let table = null;
@@ -485,7 +498,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
     let datumNorm = '';
     let prev = table.previousElementSibling;
     for (let i = 0; i < 5 && prev; i++, prev = prev.previousElementSibling) {
-      datumNorm = parseTitleDate(prev.textContent);
+      datumNorm = parseTitleDate(prev.textContent, monday);
       if (datumNorm) break;
     }
     entries.push(...parseMonListTable(table, klasse, datumNorm));
@@ -533,7 +546,7 @@ function render(entries, targetDate, debug) {
   const html = Object.entries(byDate).map(([iso, dayEntries]) => {
     const date = new Date(iso + 'T00:00:00');
     const dayName = WEEKDAY_LABELS[date.getDay() - 1] || DAY_NAMES[date.getDay()];
-    const dateStr = formatDateShort(date) + '.' + date.getFullYear();
+    const dateStr = formatDateShort(date) + date.getFullYear();
 
     let entriesHtml;
     if (dayEntries.length === 0) {

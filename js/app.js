@@ -217,8 +217,9 @@ async function submitFilterForm(baseDoc, settings, targetDate, hdrs) {
 async function fetchPlan(settings, targetDate) {
   const hdrs = authHeaders(settings);
   const debugLines = [];
+  const monday = getMondayOf(targetDate);
 
-  // Step 1: Load the base page to read the form structure
+  // Step 1: Load the base page
   debugLines.push(`Lade: ${settings.url}`);
   const baseRes = await fetch(CORS_PROXY + encodeURIComponent(settings.url), { headers: hdrs });
   debugLines.push(`Basis-Seite: HTTP ${baseRes.status}`);
@@ -226,22 +227,47 @@ async function fetchPlan(settings, targetDate) {
 
   const baseHtml = await baseRes.text();
   const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
-  const baseTitles = baseDoc.querySelectorAll('.mon_title');
-  debugLines.push(`Basis mon_title: ${baseTitles.length}`);
 
-  // Step 2: Submit the form with correct week
+  // Show first 400 chars and all hrefs to diagnose JS-rendered pages
+  const bodyText = (baseDoc.body?.innerHTML || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+  debugLines.push(`HTML-Inhalt: "${bodyText}"`);
+  const hrefs = [...baseDoc.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).filter(Boolean).slice(0, 10);
+  debugLines.push(`Links: ${hrefs.join(', ') || '(keine)'}`);
+  const scripts = [...baseDoc.querySelectorAll('script[src]')].map(s => s.getAttribute('src')).slice(0, 5);
+  debugLines.push(`Scripts: ${scripts.join(', ') || '(keine)'}`);
+
+  // Step 2: Try form submission (in case the base page has a form)
   const { doc: formDoc, debug: formDebug } = await submitFilterForm(baseDoc, settings, targetDate, hdrs);
   debugLines.push(formDebug);
 
-  const doc = formDoc || baseDoc;
-  const entries = parseVertretungsplan(doc, settings.klasse, targetDate);
-  debugLines.push(`Geparste Einträge für Klasse "${settings.klasse}": ${entries.length}`);
+  // Step 3: Try fetching day-specific sub-files (subst_001.htm – subst_005.htm)
+  // These are static Untis data files often separate from the JS shell
+  const baseDir = settings.url.replace(/\/[^/]*$/, '/');
+  const dayFiles = ['subst_001.htm', 'subst_002.htm', 'subst_003.htm', 'subst_004.htm', 'subst_005.htm'];
+  let dayEntries = [];
+  let dayFilesFound = 0;
 
-  // Count all rows to see if class filter is the issue
-  const allTables = [...doc.querySelectorAll('table.mon_list, table')];
-  let totalRows = 0;
-  for (const t of allTables.slice(0, 5)) totalRows += t.querySelectorAll('tr').length;
-  debugLines.push(`Tabellenzeilen gesamt (erste 5): ${totalRows}`);
+  for (let i = 0; i < 5; i++) {
+    const dayUrl = baseDir + dayFiles[i];
+    const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
+    try {
+      const r = await fetch(CORS_PROXY + encodeURIComponent(dayUrl), { headers: hdrs });
+      if (!r.ok) continue;
+      dayFilesFound++;
+      const html = await r.text();
+      const d = new DOMParser().parseFromString(html, 'text/html');
+      dayEntries.push(...parseMonListTable(d.querySelector('table.mon_list') || d.querySelector('table'), settings.klasse, datumNorm));
+    } catch { /* day file not available */ }
+  }
+  debugLines.push(`Tagesdateien gefunden: ${dayFilesFound}/5, Einträge: ${dayEntries.length}`);
+
+  // Choose best result
+  const doc = formDoc || baseDoc;
+  const pageEntries = parseVertretungsplan(doc, settings.klasse, targetDate);
+  debugLines.push(`Seitenparser-Einträge: ${pageEntries.length}`);
+
+  const entries = dayEntries.length > 0 ? dayEntries : pageEntries;
+  debugLines.push(`Gesamte Einträge für "${settings.klasse}": ${entries.length}`);
 
   return { entries, debug: debugLines.join('\n') };
 }

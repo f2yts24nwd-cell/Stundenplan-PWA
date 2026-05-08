@@ -346,6 +346,17 @@ function cellText(cell) {
   return cell ? cell.textContent.replace(/\s+/g, ' ').trim() : '';
 }
 
+// In Untis nav bars the current day is plain text; the other days are <a> links.
+// Returns text from non-anchor child nodes so parseTitleDate sees only the active day.
+function extractActiveText(cell) {
+  const parts = [];
+  for (const node of cell.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent);
+    else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'A') parts.push(node.textContent);
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
 // Extract YYYY-MM-DD from a day title.
 // Handles: "8.5.2026 Freitag", "8.5. Freitag" (year from monday), "Freitag" (offset from monday).
 function parseTitleDate(text, monday) {
@@ -464,7 +475,8 @@ function parseVertretungsplan(doc, klasse, targetDate) {
 
       if (isTitleRow) {
         const titleEl = row.querySelector('td.mon_title, th.mon_title') || row;
-        currentDatum = parseTitleDate(titleEl.textContent, monday);
+        const activeTitle = titleEl !== row ? extractActiveText(titleEl) : '';
+        currentDatum = parseTitleDate(activeTitle || titleEl.textContent, monday);
         debugLines.push(`Tag: "${titleEl.textContent.replace(/\s+/g,' ').trim().slice(0,50)}" → ${currentDatum || '(kein Datum)'}`);
         colMap = null;
         continue;
@@ -513,7 +525,8 @@ function parseVertretungsplan(doc, klasse, targetDate) {
 
       // Single-cell row: navigation ("4.5. Montag | …") or "nicht freigegeben"
       if (cells.length === 1 && !headers.length) {
-        const candidate = parseTitleDate(cells[0].textContent, monday);
+        const active = extractActiveText(cells[0]);
+        const candidate = parseTitleDate(active || cells[0].textContent, monday);
         if (candidate) {
           currentDatum = candidate;
           debugLines.push(`NavZeile: "${cells[0].textContent.replace(/\s+/g,' ').trim().slice(0,60)}" → ${currentDatum}`);

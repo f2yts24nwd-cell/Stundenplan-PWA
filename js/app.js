@@ -357,21 +357,29 @@ function extractActiveText(cell) {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-// Extract YYYY-MM-DD from a day title.
-// Handles: "8.5.2026 Freitag", "8.5. Freitag" (year from monday), "Freitag" (offset from monday).
+// Extract YYYY-MM-DD from a day title or datum-column value.
+// Handles: "8.5.2026 Freitag", "8.5. Freitag" (year from monday),
+//          "Freitag" or "Fr" (weekday offset from monday).
 function parseTitleDate(text, monday) {
   // Full date with 4-digit year: "8.5.2026"
   let m = text.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-  // Short date without year: "8.5." or "8.5. Freitag" — derive year from reference Monday
+  // Short date without year: "8.5." — derive year from reference Monday
   if (monday) {
     m = text.match(/(\d{1,2})\.(\d{1,2})\./);
     if (m) return `${monday.getFullYear()}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-    // Weekday name only: "Freitag" → offset from monday
-    const WD = ['montag','dienstag','mittwoch','donnerstag','freitag'];
-    const t = text.toLowerCase();
+    // Full or abbreviated weekday name → offset from monday
+    const WD      = ['montag','dienstag','mittwoch','donnerstag','freitag'];
+    const WD_SHORT = ['mo','di','mi','do','fr'];
+    const t = text.toLowerCase().trim();
     for (let i = 0; i < 5; i++) {
       if (t.includes(WD[i])) return isoDateLocal(addDays(monday, i));
+    }
+    // Abbreviated names only when text is short to avoid false positives
+    if (t.length <= 6) {
+      for (let i = 0; i < 5; i++) {
+        if (t.startsWith(WD_SHORT[i]) || t === WD_SHORT[i]) return isoDateLocal(addDays(monday, i));
+      }
     }
   }
   return '';
@@ -497,8 +505,10 @@ function parseVertretungsplan(doc, klasse, targetDate) {
       const fach = get('fach'), stattFach = get('stattfach');
       const raum = get('raum'), stattRaum = get('stattraum');
       const info = get('info');
+      const rawDatum = get('datum');
+      const datumNorm = (rawDatum ? parseTitleDate(rawDatum, monday) : '') || currentDatum;
       entries.push({
-        datumNorm: currentDatum, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
+        datumNorm, datum: rawDatum, stunde: get('stunde'), klasse: get('klasse'),
         fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
         typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
       });
@@ -549,8 +559,10 @@ function parseVertretungsplan(doc, klasse, targetDate) {
       const fach = get('fach'), stattFach = get('stattfach');
       const raum = get('raum'), stattRaum = get('stattraum');
       const info = get('info');
+      const rawDatum = get('datum');
+      const datumNorm = (rawDatum ? parseTitleDate(rawDatum, monday) : '') || currentDatum;
       entries.push({
-        datumNorm: currentDatum, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
+        datumNorm, datum: rawDatum, stunde: get('stunde'), klasse: get('klasse'),
         fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
         typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
       });

@@ -410,8 +410,9 @@ async function fetchPlan(settings, targetDate) {
         const fileUrl = new URL(f, settings.url).href;
         try {
           const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: hdrs });
-          const html = r.ok ? await r.text() : '';
-          debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch`);
+          const html = await r.text(); // always read body to diagnose 404 content
+          const preview = html.slice(0, 300).replace(/\s+/g, ' ');
+          debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch, preview: "${preview}"`);
           if (!r.ok || html.length < 200) continue;
           found++;
           const d = new DOMParser().parseFromString(html, 'text/html');

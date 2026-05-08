@@ -2,11 +2,11 @@
 
 const CACHE_NAME = 'vplan-shell-v1';
 const SHELL_URLS = [
-  '/',
-  '/index.html',
-  '/css/style.css',
-  '/js/app.js',
-  '/manifest.json',
+  './',
+  './index.html',
+  './css/style.css',
+  './js/app.js',
+  './manifest.json',
 ];
 
 self.addEventListener('install', (event) => {

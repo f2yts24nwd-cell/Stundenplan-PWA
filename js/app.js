@@ -266,8 +266,9 @@ async function fetchPlan(settings, targetDate) {
   debugLines.push(`Frames (DOM): ${frameSrcsFromDom.join(', ') || '(keine)'}`);
   debugLines.push(`Frames (Regex): ${frameSrcsFromRaw.join(', ') || '(keine)'}`);
 
-  // Fetch each frame – for the navbar, extract select options to find content URLs
+  // Fetch each frame – for the navbar, extract topDir + week value + class index
   const frameEntries = [];
+  const navbarData = { topDir: 't', weekValue: '', classIdx: 0 };
   let contentUrlsFromNavbar = [];
 
   for (const src of frameSrcs) {
@@ -280,36 +281,38 @@ async function fetchPlan(settings, targetDate) {
       debugLines.push(`Frame "${src}": HTTP ${r.status}, ${html.length} chars, ${tables.length} Tabellen`);
       if (!r.ok || !html) continue;
 
-      // ── Navbar: parse selects and inline JS to find content URLs ──────────
-      if (src.includes('navbar') || src.includes('nav') || src.includes('head')) {
-        // Show first 800 chars of navbar HTML for diagnosis
-        debugLines.push(`Navbar-HTML: "${html.slice(0, 800)}"`);
-
-        // Extract all <select> option values (week→URL mappings)
-        for (const sel of fd.querySelectorAll('select')) {
-          const opts = [...sel.options].map(o => `${o.value.trim()}=${o.text.trim()}`);
-          debugLines.push(`Select "${sel.name || sel.id}": ${opts.slice(0, 8).join(' | ')}`);
-          // Collect option values that look like file paths
-          opts.forEach(o => {
-            const val = o.split('=')[0];
-            if (val && (val.endsWith('.htm') || val.endsWith('.html') || val.includes('/'))) {
-              contentUrlsFromNavbar.push(val);
-            }
-          });
-        }
-
-        // Inline JS often has URL patterns – show relevant parts
+      // ── Navbar: extract topDir, week value, and class index ───────────────
+      if (src.includes('navbar') || src.includes('nav')) {
         const inlineJs = [...fd.querySelectorAll('script:not([src])')].map(s => s.textContent).join('\n');
-        const jsSnippet = inlineJs.slice(0, 600);
-        debugLines.push(`Navbar JS: "${jsSnippet}"`);
 
-        // Extract string literals that look like .htm paths from the JS
-        const pathRe = /['"`]([^'"`]*\.htm[l]?[^'"`]*?)['"`]/gi;
-        let pm;
-        while ((pm = pathRe.exec(inlineJs)) !== null) {
-          if (!pm[1].includes(' ')) contentUrlsFromNavbar.push(pm[1]);
+        // Extract topDir (e.g. var topDir = "t")
+        const topDirM = inlineJs.match(/topDir\s*=\s*["']([^"']+)["']/);
+        if (topDirM) navbarData.topDir = topDirM[1];
+
+        // Extract classes array to find the index of the configured class
+        const classesM = inlineJs.match(/var\s+classes\s*=\s*\[([^\]]+)\]/);
+        if (classesM) {
+          const names = classesM[1].match(/"([^"]+)"/g)?.map(s => s.slice(1, -1)) || [];
+          const idx = names.findIndex(n => n.toLowerCase() === settings.klasse.toLowerCase());
+          navbarData.classIdx = idx >= 0 ? idx + 1 : 0; // 1-based; 0 = Alle
+          navbarData.classNames = names;
         }
-        continue; // navbar itself has no substitution data
+
+        // Extract week select: find the option whose text matches target date or whose value === kw
+        const kw = getISOWeekNumber(monday);
+        for (const sel of fd.querySelectorAll('select')) {
+          const opts = [...sel.options];
+          debugLines.push(`Select "${sel.name || sel.id}": ${opts.slice(0,8).map(o=>`${o.value}=${o.text.trim()}`).join(' | ')}`);
+
+          // Week selector: option value is a bare number matching KW
+          if (opts.some(o => parseInt(o.value) === kw || parseInt(o.value) === kw - 1)) {
+            const match = opts.find(o => parseInt(o.value) === kw);
+            if (match) navbarData.weekValue = match.value;
+          }
+        }
+
+        debugLines.push(`topDir="${navbarData.topDir}", weekValue="${navbarData.weekValue}", classIdx=${navbarData.classIdx}`);
+        continue;
       }
 
       // ── Data frames: look for substitution tables ─────────────────────────
@@ -328,36 +331,48 @@ async function fetchPlan(settings, targetDate) {
     }
   }
 
-  // Deduplicate navbar content URLs and try fetching them
-  contentUrlsFromNavbar = [...new Set(contentUrlsFromNavbar)];
-  debugLines.push(`Content-URLs aus Navbar: ${contentUrlsFromNavbar.join(', ') || '(keine)'}`);
-
-  if (frameEntries.length === 0 && contentUrlsFromNavbar.length > 0) {
+  // ── Fetch content using topDir + week pattern: t{week}/subst_001.htm ──────
+  if (frameEntries.length === 0 && navbarData.weekValue) {
+    const { topDir, weekValue, classIdx } = navbarData;
     const kw = getISOWeekNumber(monday);
-    const year = monday.getFullYear();
 
-    // Find the URL for the target week – match year+week number in the path
-    const weekStr = String(kw).padStart(2, '0');
-    const targetPattern = new RegExp(`${year}.*${weekStr}|${weekStr}.*${year}|w${year}${weekStr}`, 'i');
-    const weekUrls = contentUrlsFromNavbar.filter(u => targetPattern.test(u));
-    const urlsToTry = weekUrls.length > 0 ? weekUrls : contentUrlsFromNavbar.slice(0, 10);
-    debugLines.push(`Versuche URLs: ${urlsToTry.join(', ')}`);
+    // Try all 5 day files for the target week
+    const dayFiles = [1,2,3,4,5].map(n => `${topDir}${weekValue}/subst_00${n}.htm`);
+    debugLines.push(`Versuche Tagesdateien: ${dayFiles.join(', ')}`);
 
-    for (const relUrl of urlsToTry) {
-      const absUrl = new URL(relUrl, settings.url).href;
+    let found = 0;
+    for (let i = 0; i < 5; i++) {
+      const fileUrl = new URL(dayFiles[i], settings.url).href;
+      const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
       try {
-        const r = await fetch(usedProxy + encodeURIComponent(absUrl), { headers: hdrs });
+        const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: hdrs });
         const html = r.ok ? await r.text() : '';
-        debugLines.push(`Content "${relUrl}": HTTP ${r.status}, ${html.length} chars`);
-        if (!r.ok || html.length < 100) continue;
-        const cd = new DOMParser().parseFromString(html, 'text/html');
-        const dayNum = relUrl.match(/(\d+)\.[^.]+$/)?.[1];
-        const idx = dayNum ? parseInt(dayNum, 10) - 1 : 0;
-        const datumNorm = (idx >= 0 && idx < 5) ? addDays(monday, idx).toISOString().slice(0, 10) : '';
-        const tbl = cd.querySelector('table.mon_list') || cd.querySelector('table');
+        debugLines.push(`${dayFiles[i]}: HTTP ${r.status}, ${html.length} chars`);
+        if (!r.ok || html.length < 200) continue;
+        found++;
+        const d = new DOMParser().parseFromString(html, 'text/html');
+        const tbl = d.querySelector('table.mon_list') || d.querySelector('table');
         if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
       } catch (e) {
-        debugLines.push(`Content "${relUrl}" Fehler: ${e.message}`);
+        debugLines.push(`${dayFiles[i]}: Fehler ${e.message}`);
+      }
+    }
+
+    // If day files failed, try class-specific file (e.g. t19/w3.htm for 5C)
+    if (found === 0 && classIdx > 0) {
+      const typeCode = 'w'; // HP-Kla uses type "w"
+      const classFile = `${topDir}${weekValue}/${typeCode}${classIdx}.htm`;
+      debugLines.push(`Versuche Klassen-Datei: ${classFile}`);
+      try {
+        const r = await fetch(usedProxy + encodeURIComponent(new URL(classFile, settings.url).href), { headers: hdrs });
+        const html = r.ok ? await r.text() : '';
+        debugLines.push(`${classFile}: HTTP ${r.status}, ${html.length} chars`);
+        if (r.ok && html.length > 200) {
+          const d = new DOMParser().parseFromString(html, 'text/html');
+          frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+        }
+      } catch (e) {
+        debugLines.push(`${classFile}: Fehler ${e.message}`);
       }
     }
   }

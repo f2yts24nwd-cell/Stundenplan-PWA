@@ -76,12 +76,21 @@ function formatDateShort(date) {
   return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
 }
 
+// LOCAL date → "YYYY-MM-DD" without UTC offset shift (toISOString() uses UTC)
+function isoDateLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 // Build the week label shown in the header bar
 function buildWeekLabel(targetDate) {
   const monday = getMondayOf(targetDate);
   const friday = addDays(monday, 4);
   const kw = getISOWeekNumber(monday);
-  return `KW ${kw} · ${formatDateShort(monday)}–${formatDateShort(friday)}.${friday.getFullYear()}`;
+  // formatDateShort returns "08.05." (trailing dot in de-DE), so no extra dot needed
+  return `KW ${kw} · ${formatDateShort(monday)}–${formatDateShort(friday)}${friday.getFullYear()}`;
 }
 
 // ── Fetch & parse ──────────────────────────────────────────────────────────
@@ -357,7 +366,7 @@ async function fetchPlan(settings, targetDate) {
       } else {
         const dayNum = src.match(/(\d+)\.[^.]+$/)?.[1];
         const idx = dayNum ? parseInt(dayNum, 10) - 1 : 0;
-        const datumNorm = (idx >= 0 && idx < 5) ? addDays(monday, idx).toISOString().slice(0, 10) : '';
+        const datumNorm = (idx >= 0 && idx < 5) ? isoDateLocal(addDays(monday, idx)) : '';
         const tbl = fd.querySelector('table.mon_list') || fd.querySelector('table');
         if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
       }
@@ -457,7 +466,7 @@ async function fetchPlan(settings, targetDate) {
     let found = 0;
     for (let i = 0; i < 5; i++) {
       const dayUrl = baseDir + dayFiles[i];
-      const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
+      const datumNorm = isoDateLocal(addDays(monday, i));
       try {
         const r = await fetch(usedProxy + encodeURIComponent(dayUrl), { headers: hdrs });
         if (!r.ok) continue;
@@ -642,7 +651,7 @@ function render(entries, targetDate, debug) {
   const byDate = {};
   for (let i = 0; i < 5; i++) {
     const d = addDays(monday, i);
-    byDate[d.toISOString().slice(0, 10)] = [];
+    byDate[isoDateLocal(d)] = [];
   }
 
   // Also bucket by weekday index for entries without a parseable date
@@ -654,7 +663,7 @@ function render(entries, targetDate, debug) {
       let placed = false;
       for (let i = 0; i < 5; i++) {
         const d = addDays(monday, i);
-        const iso = d.toISOString().slice(0, 10);
+        const iso = isoDateLocal(d);
         if (e.datum && DAY_NAMES[d.getDay()] && e.datum.toLowerCase().includes(DAY_NAMES[d.getDay()].toLowerCase().slice(0, 2))) {
           byDate[iso].push(e);
           placed = true;
@@ -663,7 +672,7 @@ function render(entries, targetDate, debug) {
       }
       // If we still couldn't place it, drop into the monday bucket as fallback
       if (!placed) {
-        const mondayIso = monday.toISOString().slice(0, 10);
+        const mondayIso = isoDateLocal(monday);
         byDate[mondayIso].push(e);
       }
     }

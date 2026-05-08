@@ -84,177 +84,291 @@ function buildWeekLabel(targetDate) {
   return `KW ${kw} · ${formatDateShort(monday)}–${formatDateShort(friday)}.${friday.getFullYear()}`;
 }
 
-// Build the URL for a specific week. Untis typically uses ?week=YYYYWW or
-// ?d=YYYYMMDD. We append ?week=YYYYWW; if the server ignores it we still get
-// the current week (acceptable for simple setups).
-function buildWeekUrl(baseUrl, targetDate) {
-  const monday = getMondayOf(targetDate);
-  const year = monday.getFullYear();
-  const kw = String(getISOWeekNumber(monday)).padStart(2, '0');
-  const weekParam = `${year}${kw}`;
-
-  try {
-    const u = new URL(baseUrl);
-    u.searchParams.set('week', weekParam);
-    return u.toString();
-  } catch {
-    // Fallback: simple string append
-    const sep = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${sep}week=${weekParam}`;
-  }
-}
-
 // ── Fetch & parse ──────────────────────────────────────────────────────────
-async function fetchPlan(settings, targetDate) {
-  const weekUrl = buildWeekUrl(settings.url, targetDate);
-  const proxyUrl = CORS_PROXY + encodeURIComponent(weekUrl);
 
-  const headers = {};
+function authHeaders(settings) {
+  const h = {};
   if (settings.user && settings.pass) {
-    headers['Authorization'] = 'Basic ' + btoa(unescape(encodeURIComponent(`${settings.user}:${settings.pass}`)));
+    h['Authorization'] = 'Basic ' + btoa(unescape(encodeURIComponent(`${settings.user}:${settings.pass}`)));
   }
-
-  const res = await fetch(proxyUrl, { headers });
-  if (!res.ok) throw new Error(`HTTP ${res.status} – ${res.statusText}`);
-
-  const html = await res.text();
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  return parseVertretungsplan(doc, settings.klasse, targetDate);
+  return h;
 }
 
-function detectTyp(row) {
-  const text = row.textContent.toLowerCase();
-  if (text.includes('ausfall') || text.includes('fällt aus') || text.includes('entfall') || text.includes('---')) return 'ausfall';
-  if (text.includes('vertretung') || text.includes('vertr.')) return 'vertretung';
-  if (text.includes('raum') && (text.includes('änder') || text.includes('wechsel'))) return 'raum';
-  // Check CSS classes for visual hints
-  const cls = row.className.toLowerCase();
-  if (cls.includes('ausfall') || cls.includes('cancel')) return 'ausfall';
-  if (cls.includes('vertr')) return 'vertretung';
-  if (cls.includes('raum')) return 'raum';
-  return 'other';
+// Returns true if the <select> is a calendar-week selector
+function isWeekSelector(select) {
+  const name = select.name.toLowerCase();
+  if (name.includes('week') || name.includes('kw') || name.includes('woche') || name.includes('calendar')) return true;
+  const opts = [...select.options];
+  return opts.some(o =>
+    /^\d{6}$/.test(o.value) ||
+    /KW\s*\d+/i.test(o.text) ||
+    /Woche\s*\d+/i.test(o.text) ||
+    /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(o.text.trim()) // e.g. "4.5.2026"
+  );
+}
+
+// Find the option value matching the target week.
+// Handles: YYYYWW, bare KW number, and German date "D.M.YYYY" (Monday of week).
+function findWeekOption(opts, kw, year, monday) {
+  const yyyyww = `${year}${String(kw).padStart(2, '0')}`;
+  const d = monday.getDate();
+  const m = monday.getMonth() + 1;
+  // All plausible text/value representations of the target Monday
+  const candidates = [
+    yyyyww,                                                              // 202618
+    `${d}.${m}.${year}`,                                                 // 4.5.2026
+    `${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}.${year}`, // 04.05.2026
+    `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, // 2026-05-04
+    String(kw),
+  ];
+  for (const c of candidates) {
+    const found = opts.find(o => o.value === c || o.text.trim() === c);
+    if (found) return found.value;
+  }
+  // Text contains KW number
+  const byKw = opts.find(o => o.text.includes(`KW ${kw}`) || o.text.includes(`KW${kw}`));
+  if (byKw) return byKw.value;
+  return null;
+}
+
+// Submits the Untis filter form with the correct week and "alle" class selection.
+// Returns a parsed Document on success, or null if no usable form was found.
+async function submitFilterForm(baseDoc, settings, targetDate, hdrs) {
+  const form = baseDoc.querySelector('form');
+  if (!form) return null;
+
+  const monday = getMondayOf(targetDate);
+  const kw = getISOWeekNumber(monday);
+  const year = monday.getFullYear();
+
+  const method = (form.getAttribute('method') || 'get').toLowerCase();
+  const action = form.getAttribute('action');
+  const actionUrl = action ? new URL(action, settings.url).href : settings.url;
+
+  const data = new URLSearchParams();
+
+  for (const el of form.elements) {
+    if (!el.name || el.disabled) continue;
+
+    if (el.tagName === 'SELECT') {
+      const opts = [...el.options];
+
+      if (isWeekSelector(el)) {
+        const v = findWeekOption(opts, kw, year, monday);
+        data.set(el.name, v !== null ? v : (el.value || ''));
+        continue;
+      }
+
+      // Select "alle" / all-classes option if present (matches "- Alle -", "alle", etc.)
+      const alleOpt = opts.find(o =>
+        o.text.toLowerCase().includes('alle') ||
+        o.value.toLowerCase() === 'alle' ||
+        o.value === '0'
+      );
+      if (alleOpt) {
+        data.set(el.name, alleOpt.value);
+        continue;
+      }
+
+      data.set(el.name, el.value || '');
+    } else if (el.type !== 'submit' && el.type !== 'button' && el.type !== 'reset' && el.type !== 'image') {
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        if (el.checked) data.set(el.name, el.value);
+      } else {
+        data.set(el.name, el.value || '');
+      }
+    }
+  }
+
+  let res;
+  if (method === 'post') {
+    res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl), {
+      method: 'POST',
+      headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: data.toString(),
+    });
+  } else {
+    const sep = actionUrl.includes('?') ? '&' : '?';
+    res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl + sep + data.toString()), {
+      headers: hdrs,
+    });
+  }
+
+  if (!res || !res.ok) return null;
+  const html = await res.text();
+  return new DOMParser().parseFromString(html, 'text/html');
+}
+
+async function fetchPlan(settings, targetDate) {
+  const hdrs = authHeaders(settings);
+
+  // Step 1: Load the base page to read the form structure
+  const baseRes = await fetch(CORS_PROXY + encodeURIComponent(settings.url), { headers: hdrs });
+  if (!baseRes.ok) throw new Error(`HTTP ${baseRes.status} – ${baseRes.statusText}`);
+  const baseHtml = await baseRes.text();
+  const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
+
+  // Step 2: Submit the form with correct week + "alle" selection
+  let doc = await submitFilterForm(baseDoc, settings, targetDate, hdrs);
+
+  // Fallback: parse the base page directly (shows current week, may be incomplete)
+  if (!doc) doc = baseDoc;
+
+  return parseVertretungsplan(doc, settings.klasse, targetDate);
 }
 
 function cellText(cell) {
   return cell ? cell.textContent.replace(/\s+/g, ' ').trim() : '';
 }
 
-// Normalize a date string from Untis (various German formats) into YYYY-MM-DD
-function normalizeDatum(raw, weekMonday) {
-  if (!raw) return '';
-  // Try DD.MM.YYYY or DD.MM.YY
-  const dmyMatch = raw.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
-  if (dmyMatch) {
-    const d = dmyMatch[1].padStart(2, '0');
-    const m = dmyMatch[2].padStart(2, '0');
-    let y = dmyMatch[3];
-    if (y.length === 2) y = '20' + y;
-    return `${y}-${m}-${d}`;
-  }
-  // Try day-of-week name → map to date within the target week
-  const dayIndex = DAY_NAMES.findIndex(n => raw.toLowerCase().startsWith(n.toLowerCase().slice(0, 2)));
-  if (dayIndex > 0 && weekMonday) {
-    const offset = dayIndex - 1; // Mon=1 → offset 0
-    const d = addDays(weekMonday, offset);
-    return d.toISOString().slice(0, 10);
-  }
-  return raw;
+// Extract YYYY-MM-DD from a day title like "4.5.2026 Montag" or "Montag 4.5.2026"
+function parseTitleDate(text) {
+  const m = text.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (!m) return '';
+  return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
 }
 
-// Main parser – tries several table selectors used by WebUntis / Untis Mobile
-function parseVertretungsplan(doc, klasse, targetDate) {
-  const monday = getMondayOf(targetDate);
-
-  // Common Untis table selectors
-  const selectors = [
-    'table.list',
-    'table.mon_list',
-    'table.VPlanTable',
-    'table.subst_list',
-    '#vertretungen table',
-    '.VPlan table',
-    'table',
-  ];
-
-  let table = null;
-  for (const sel of selectors) {
-    const t = doc.querySelector(sel);
-    if (t && t.querySelectorAll('tr').length > 1) {
-      table = t;
-      break;
-    }
-  }
-  if (!table) return [];
-
-  const rows = [...table.querySelectorAll('tr')];
-
-  // Determine header columns from first <tr> containing <th> or first data row
-  let colMap = null;
-  let dataRows = [];
-
-  for (let i = 0; i < rows.length; i++) {
-    const cells = [...rows[i].querySelectorAll('th, td')];
-    if (!cells.length) continue;
-
-    if (!colMap && cells.some(c => c.tagName === 'TH')) {
-      // Build column map from header
-      colMap = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
-      continue;
-    }
-    // Skip rows with no td
-    if (!rows[i].querySelector('td')) continue;
-    dataRows.push(rows[i]);
-  }
-
-  // Fallback column map (positional, Untis default order)
-  if (!colMap) {
-    colMap = { datum: 0, stunde: 1, klasse: 2, fach: 3, vertreter: 4, raum: 5, info: 6 };
-  }
-
-  const klasseLower = klasse.toLowerCase().trim();
-
-  return dataRows
-    .filter(row => row.textContent.toLowerCase().includes(klasseLower))
-    .map(row => {
-      const cells = [...row.querySelectorAll('td')];
-      const get = (key) => cellText(cells[colMap[key]]);
-
-      const raw = {
-        datum:     get('datum'),
-        stunde:    get('stunde'),
-        klasse:    get('klasse'),
-        fach:      get('fach'),
-        vertreter: get('vertreter'),
-        raum:      get('raum'),
-        info:      get('info'),
-        typ:       detectTyp(row),
-      };
-      raw.datumNorm = normalizeDatum(raw.datum, monday);
-      return raw;
-    });
+// Determine entry type from actual column values (LMG/Untis semantics):
+// Fach    = replacement subject ("---" means lesson is cancelled)
+// stattFach = original scheduled subject
+// Raum    = replacement room
+// stattRaum = original room
+function detectTypFromColumns(fach, stattFach, raum, stattRaum, info) {
+  const infoL = info.toLowerCase();
+  if (infoL.includes('and.raum') || infoL.includes('raumänderung')) return 'raum';
+  if (!fach || fach === '---') return 'ausfall';
+  if (fach === stattFach && raum !== stattRaum && raum && raum !== '---') return 'raum';
+  if (fach !== stattFach) return 'vertretung';
+  return 'other';
 }
 
-// Map known German column header variants to canonical keys
+// Map actual LMG column header texts to canonical keys.
+// LMG columns: Klasse(n) | Stunde | Fach | statt Fach | Raum | statt Raum | Vertr. von | Text
 function buildColMap(headers) {
   const map = {};
   const variants = {
-    datum:     ['datum', 'date', 'tag'],
-    stunde:    ['stunde', 'std', 'periode', 'std.', 'hour'],
-    klasse:    ['klasse', 'class', 'kl.', 'kl'],
-    fach:      ['fach', 'subject', 'fach/kurs', 'lf', 'kurs'],
-    vertreter: ['vertreter', 'lehrer', 'teacher', 'vertretung', 'vert.', 'vertr.'],
-    raum:      ['raum', 'room', 'rm', 'raumänderung'],
-    info:      ['info', 'hinweis', 'bemerkung', 'text', 'art', 'notiz'],
+    klasse:     ['klasse', 'class', 'kl.', 'kl'],
+    stunde:     ['stunde', 'std', 'periode', 'hour'],
+    fach:       ['fach'],          // matched before 'statt fach'
+    stattfach:  ['statt fach', 'statt-fach'],
+    raum:       ['raum'],          // matched before 'statt raum'
+    stattraum:  ['statt raum', 'statt-raum'],
+    vertreter:  ['vertr. von', 'vertr.von', 'vertreter', 'lehrer', 'vert.'],
+    info:       ['text', 'info', 'hinweis', 'bemerkung', 'art'],
+    datum:      ['datum', 'date', 'tag'],
   };
   headers.forEach((h, i) => {
     for (const [key, vs] of Object.entries(variants)) {
-      if (vs.some(v => h.includes(v))) {
+      // Use exact-prefix match to avoid 'fach' matching 'statt fach' first
+      if (vs.some(v => h === v || h.startsWith(v))) {
         if (!(key in map)) map[key] = i;
         break;
       }
     }
   });
   return map;
+}
+
+// Parse a single mon_list table, associating all rows with datumNorm.
+function parseMonListTable(table, klasse, datumNorm) {
+  const klasseLower = klasse.toLowerCase().trim();
+  const rows = [...table.querySelectorAll('tr')];
+  let colMap = null;
+  const entries = [];
+
+  for (const row of rows) {
+    const headerCells = [...row.querySelectorAll('th')];
+    if (headerCells.length && !colMap) {
+      colMap = buildColMap(headerCells.map(c => c.textContent.trim().toLowerCase()));
+      continue;
+    }
+    const cells = [...row.querySelectorAll('td')];
+    if (!cells.length) continue;
+
+    // Skip "Vertretungen sind nicht freigegeben" rows
+    if (cells.length === 1) continue;
+
+    if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
+
+    if (!colMap) {
+      // Default LMG positional order
+      colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
+    }
+
+    const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
+    const fach      = get('fach');
+    const stattFach = get('stattfach');
+    const raum      = get('raum');
+    const stattRaum = get('stattraum');
+    const info      = get('info');
+
+    entries.push({
+      datumNorm,
+      datum:     get('datum'),
+      stunde:    get('stunde'),
+      klasse:    get('klasse'),
+      fach,
+      stattFach,
+      raum,
+      stattRaum,
+      vertreter: get('vertreter'),
+      info,
+      typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
+    });
+  }
+  return entries;
+}
+
+// Main parser: finds per-day sections (mon_title + mon_list) in Untis HTML.
+function parseVertretungsplan(doc, klasse, targetDate) {
+  const monday = getMondayOf(targetDate);
+  const entries = [];
+
+  // Find all day title elements (Untis uses class="mon_title")
+  const titleEls = [...doc.querySelectorAll('.mon_title, td.mon_title, span.mon_title, div.mon_title')];
+
+  if (titleEls.length > 0) {
+    for (const titleEl of titleEls) {
+      const datumNorm = parseTitleDate(titleEl.textContent);
+
+      // Walk up/sideways in DOM to find the nearest mon_list table
+      let table = null;
+      let cursor = titleEl.parentElement;
+      while (cursor && !table) {
+        table = cursor.querySelector('table.mon_list');
+        if (!table) {
+          // Try next sibling of cursor
+          let sib = cursor.nextElementSibling;
+          while (sib && !table) {
+            table = sib.tagName === 'TABLE' ? sib : sib.querySelector('table');
+            sib = sib.nextElementSibling;
+          }
+        }
+        cursor = cursor.parentElement;
+      }
+
+      if (table) {
+        entries.push(...parseMonListTable(table, klasse, datumNorm));
+      }
+    }
+    return entries;
+  }
+
+  // Fallback: no mon_title found – scan all tables with header rows
+  const allTables = [...doc.querySelectorAll('table.mon_list, table.list, table')];
+  for (const table of allTables) {
+    if (table.querySelectorAll('tr').length < 2) continue;
+    // Try to find a date near this table
+    let datumNorm = '';
+    let prev = table.previousElementSibling;
+    for (let i = 0; i < 5 && prev; i++, prev = prev.previousElementSibling) {
+      datumNorm = parseTitleDate(prev.textContent);
+      if (datumNorm) break;
+    }
+    entries.push(...parseMonListTable(table, klasse, datumNorm));
+    if (entries.length > 0) break; // only first useful table in fallback
+  }
+  return entries;
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────
@@ -322,23 +436,34 @@ function renderEntry(e) {
   const typClass = e.typ === 'ausfall' ? 'ausfall' : e.typ === 'vertretung' ? 'vertretung' : e.typ === 'raum' ? 'raum' : '';
 
   let badge = '';
-  if (e.typ === 'ausfall') badge = '<span class="entry-badge badge-ausfall">Ausfall</span>';
+  if (e.typ === 'ausfall')     badge = '<span class="entry-badge badge-ausfall">Ausfall</span>';
   else if (e.typ === 'vertretung') badge = '<span class="entry-badge badge-vertretung">Vertretung</span>';
-  else if (e.typ === 'raum') badge = '<span class="entry-badge badge-raum">Raum</span>';
+  else if (e.typ === 'raum')   badge = '<span class="entry-badge badge-raum">and.Raum</span>';
+
+  // Subject line: show replacement subject + original struck-through if different
+  const fachDisplay = e.fach && e.fach !== '---' ? escHtml(e.fach) : '<em>entfällt</em>';
+  const origFach = e.stattFach && e.stattFach !== e.fach && e.stattFach !== '---'
+    ? ` <span class="entry-orig">statt ${escHtml(e.stattFach)}</span>` : '';
+
+  // Room line
+  const raumNew  = e.raum && e.raum !== '---' ? escHtml(e.raum) : '';
+  const raumOrig = e.stattRaum && e.stattRaum !== '---' && e.stattRaum !== e.raum
+    ? `<span class="entry-orig">statt ${escHtml(e.stattRaum)}</span>` : '';
+  const raumLine = [raumNew, raumOrig].filter(Boolean).join(' ');
 
   const sub = [];
-  if (e.vertreter) sub.push(e.vertreter);
-  if (e.raum) sub.push(e.raum);
+  if (e.vertreter) sub.push(escHtml(e.vertreter));
+  if (raumLine)    sub.push(raumLine);
 
   return `
     <div class="entry ${typClass}">
       <div class="entry-stunde">${escHtml(e.stunde)}</div>
       <div class="entry-details">
         <div class="entry-main">
-          <span class="entry-fach">${escHtml(e.fach || '–')}</span>
+          <span class="entry-fach">${fachDisplay}</span>${origFach}
           ${badge}
         </div>
-        ${sub.length ? `<div class="entry-sub">${sub.map(escHtml).join(' · ')}</div>` : ''}
+        ${sub.length ? `<div class="entry-sub">${sub.join(' · ')}</div>` : ''}
         ${e.info ? `<div class="entry-info">${escHtml(e.info)}</div>` : ''}
       </div>
     </div>`;

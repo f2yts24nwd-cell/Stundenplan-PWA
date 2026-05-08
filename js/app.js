@@ -228,264 +228,116 @@ async function fetchPlan(settings, targetDate) {
   const debugLines = [];
   const monday = getMondayOf(targetDate);
 
-  // Try two CORS proxies – corsproxy.io sometimes strips Authorization header
-  const PROXIES = [
-    'https://corsproxy.io/?',
-    'https://api.allorigins.win/raw?url=',
-  ];
-
+  // ── Step 1: fetch main page (try both proxies, skip on 429) ──────────────
+  const PROXIES = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
   let baseHtml = '';
   let usedProxy = '';
 
   for (const proxy of PROXIES) {
     try {
       const r = await fetch(proxy + encodeURIComponent(settings.url), { headers: hdrs });
+      if (r.status === 429) { debugLines.push(`${proxy}: 429 Rate limit`); continue; }
       const text = await r.text();
-      debugLines.push(`${proxy}: HTTP ${r.status}, ${text.length} Zeichen`);
-      if (text.length > 100) {
-        baseHtml = text;
-        usedProxy = proxy;
-        break;
-      }
+      debugLines.push(`Proxy: ${proxy.split('?')[0]}, HTTP ${r.status}`);
+      if (r.ok && text.length > 100) { baseHtml = text; usedProxy = proxy; break; }
     } catch (e) {
-      debugLines.push(`${proxy}: Fehler – ${e.message}`);
+      debugLines.push(`Proxy Fehler: ${e.message}`);
     }
   }
-
-  if (!baseHtml) throw new Error('Alle Proxies liefern leere Antwort. Bitte URL und Zugangsdaten prüfen.');
-
-  // Show full raw HTML of main page (it's only ~1976 chars)
-  debugLines.push(`Roher HTML (voll): "${baseHtml.replace(/\s+/g,' ')}"`);
+  if (!baseHtml) throw new Error('Proxy nicht erreichbar oder Rate Limit. Bitte etwas warten.');
 
   const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
-  const baseDir = settings.url.replace(/\/[^/]*$/, '/');
 
-  // ── Frameset detection (classic Untis 2026 uses <FRAMESET>) ───────────────
-  // DOMParser may not preserve <frame> in all browsers; also search raw HTML
-  const frameSrcsFromDom = [...baseDoc.querySelectorAll('frame, iframe')]
-    .map(f => f.getAttribute('src')).filter(Boolean);
-
-  // Also parse raw HTML with regex as backup (DOMParser may drop frameset)
-  const frameSrcsFromRaw = [];
+  // ── Step 2: find navbar frame src via regex (DOMParser drops frameset) ───
   const frameRe = /<frame[^>]+src=["']?([^"'\s>]+)["']?/gi;
+  const allFrames = [];
   let fm;
-  while ((fm = frameRe.exec(baseHtml)) !== null) frameSrcsFromRaw.push(fm[1]);
+  while ((fm = frameRe.exec(baseHtml)) !== null) allFrames.push(fm[1]);
+  const navbarSrc = allFrames.find(s => s.includes('navbar') || s.includes('nav'));
+  debugLines.push(`Frames: ${allFrames.join(', ') || '(keine)'}`);
 
-  const frameSrcs = [...new Set([...frameSrcsFromDom, ...frameSrcsFromRaw])];
-  debugLines.push(`Frames (DOM): ${frameSrcsFromDom.join(', ') || '(keine)'}`);
-  debugLines.push(`Frames (Regex): ${frameSrcsFromRaw.join(', ') || '(keine)'}`);
-
-  // Fetch each frame – for the navbar, extract topDir + week value + class index
-  const frameEntries = [];
-  const navbarData = { topDir: 't', weekValue: '', classIdx: 0 };
-  let contentUrlsFromNavbar = [];
-
-  for (const src of frameSrcs) {
-    const frameUrl = new URL(src, settings.url).href;
+  // ── Step 3: fetch only the navbar frame ──────────────────────────────────
+  const navbarData = { weekValue: '', classIdx: 0, typeCode: 'w', availableWeeks: [] };
+  if (navbarSrc) {
+    const navUrl = new URL(navbarSrc, settings.url).href;
     try {
-      const r = await fetch(usedProxy + encodeURIComponent(frameUrl), { headers: hdrs });
-      const html = r.ok ? await r.text() : '';
-      const fd = new DOMParser().parseFromString(html, 'text/html');
-      const tables = fd.querySelectorAll('table');
-      debugLines.push(`Frame "${src}": HTTP ${r.status}, ${html.length} chars, ${tables.length} Tabellen`);
-      if (!r.ok || !html) continue;
-
-      // Log all small frames fully to find alternative data URLs
-      if (src.includes('welcome') || src.includes('title') || src.includes('fuss')) {
-        debugLines.push(`${src} Inhalt: "${html.replace(/\s+/g,' ')}"`);
-        continue;
-      }
-
-      // ── Navbar: extract topDir, week value, and class index ───────────────
-      if (src.includes('navbar') || src.includes('nav')) {
+      const r = await fetch(usedProxy + encodeURIComponent(navUrl), { headers: hdrs });
+      if (r.ok) {
+        const html = await r.text();
+        const fd = new DOMParser().parseFromString(html, 'text/html');
         const inlineJs = [...fd.querySelectorAll('script:not([src])')].map(s => s.textContent).join('\n');
 
-        // Extract topDir (e.g. var topDir = "t")
-        const topDirM = inlineJs.match(/topDir\s*=\s*["']([^"']+)["']/);
-        if (topDirM) navbarData.topDir = topDirM[1];
-
-        // Extract classes array to find the index of the configured class
+        // Extract classes array → find index of configured class (1-based)
         const classesM = inlineJs.match(/var\s+classes\s*=\s*\[([^\]]+)\]/);
         if (classesM) {
           const names = classesM[1].match(/"([^"]+)"/g)?.map(s => s.slice(1, -1)) || [];
           const idx = names.findIndex(n => n.toLowerCase() === settings.klasse.toLowerCase());
-          navbarData.classIdx = idx >= 0 ? idx + 1 : 0; // 1-based; 0 = Alle
-          navbarData.classNames = names;
+          navbarData.classIdx = idx >= 0 ? idx + 1 : 0;
         }
 
-        // Extract week and type selects from the navbar form
         const kw = getISOWeekNumber(monday);
         for (const sel of fd.querySelectorAll('select')) {
           const opts = [...sel.options];
-          debugLines.push(`Select "${sel.name || sel.id}": ${opts.slice(0,8).map(o=>`${o.value}=${o.text.trim()}`).join(' | ')}`);
-
-          // Week selector: option value is a bare number matching KW
+          // Week selector: option values are bare KW numbers
           if (opts.some(o => parseInt(o.value) === kw || parseInt(o.value) === kw - 1)) {
-            // Store ALL available week values for fallback attempts
             navbarData.availableWeeks = opts.map(o => o.value).filter(v => /^\d+$/.test(v));
             const match = opts.find(o => parseInt(o.value) === kw);
-            if (match) navbarData.weekValue = match.value;
-            // If target week not found, use the last available week
-            if (!match && navbarData.availableWeeks.length > 0) {
-              navbarData.weekValue = navbarData.availableWeeks[navbarData.availableWeeks.length - 1];
-            }
+            navbarData.weekValue = match ? match.value
+              : navbarData.availableWeeks[navbarData.availableWeeks.length - 1] || '';
           }
-
-          // Type selector (e.g. "w"=HP-Kla, "c"=Lehrer)
+          // Type selector
           if ((sel.name || '').toLowerCase() === 'type' && opts.length > 0) {
-            navbarData.typeCode = opts[0].value; // use first option as default type
+            navbarData.typeCode = opts[0].value;
           }
         }
-
-        // If class index still 0, try to read it from the element select
-        if (navbarData.classIdx === 0) {
-          const elSel = fd.querySelector('select[name="element"]');
-          if (elSel) {
-            const elOpts = [...elSel.options];
-            const elMatch = elOpts.find(o => o.text.trim().toLowerCase() === settings.klasse.toLowerCase());
-            if (elMatch) navbarData.classIdx = parseInt(elMatch.value, 10);
-          }
-        }
-
-        debugLines.push(`topDir="${navbarData.topDir}", weekValue="${navbarData.weekValue}", classIdx=${navbarData.classIdx}, typeCode="${navbarData.typeCode || 'w'}"`);
-        debugLines.push(`classNames: ${(navbarData.classNames || []).join(', ') || '(keine)'}`);
-
-        // Log any URL-building pattern in navbar inline JS
-        const urlBuildFn = inlineJs.match(/(function\s+\w*[Dd]isplay\w*[^}]+}|postMessage[^;]+;|location\.href[^;]+;)/);
-        if (urlBuildFn) debugLines.push(`Navbar URL-Funktion: "${urlBuildFn[0].slice(0, 300)}"`);
-        // Also show first 500 chars of inline JS for manual inspection
-        debugLines.push(`Navbar JS (500 ch): "${inlineJs.slice(0, 500)}"`);
-
-        continue;
-      }
-
-      // ── Data frames: look for substitution tables ─────────────────────────
-      const titleEls = [...fd.querySelectorAll('.mon_title')];
-      if (titleEls.length > 0) {
-        frameEntries.push(...parseVertretungsplan(fd, settings.klasse, targetDate));
-      } else {
-        const dayNum = src.match(/(\d+)\.[^.]+$/)?.[1];
-        const idx = dayNum ? parseInt(dayNum, 10) - 1 : 0;
-        const datumNorm = (idx >= 0 && idx < 5) ? isoDateLocal(addDays(monday, idx)) : '';
-        const tbl = fd.querySelector('table.mon_list') || fd.querySelector('table');
-        if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
+        debugLines.push(`KW ${navbarData.weekValue}, Klasse-Idx ${navbarData.classIdx}, Type "${navbarData.typeCode}"`);
       }
     } catch (e) {
-      debugLines.push(`Frame "${src}" Fehler: ${e.message}`);
+      debugLines.push(`Navbar Fehler: ${e.message}`);
     }
   }
 
-  // ── Fetch untisscripts.js – show up to 4000 chars + find doDisplayTimetable ──
-  try {
-    const scriptUrl = baseDir + 'untisscripts.js';
-    const sr = await fetch(usedProxy + encodeURIComponent(scriptUrl), { headers: hdrs });
-    const scriptText = sr.ok ? await sr.text() : `HTTP ${sr.status}`;
-    // Find doDisplayTimetable function for URL pattern insight
-    const fnIdx = scriptText.indexOf('doDisplayTimetable');
-    if (fnIdx >= 0) {
-      debugLines.push(`doDisplayTimetable @ ${fnIdx}: "${scriptText.slice(fnIdx, fnIdx + 800)}"`);
-    } else {
-      debugLines.push(`untisscripts.js (4000 ch): "${scriptText.slice(0, 4000)}"`);
-    }
-  } catch (e) {
-    debugLines.push(`untisscripts.js Fehler: ${e.message}`);
-  }
-
-  // ── Try alternative root-level substitution pages ─────────────────────────
-  {
-    const altPaths = ['subst_001.htm', 'vertretung.htm', 'vplan.htm', 'subst.htm',
-                      'aktuell.htm', 'today.htm', 'index.htm', ''];
-    for (const p of altPaths) {
-      try {
-        const altUrl = new URL(p, settings.url).href;
-        const r = await fetch(usedProxy + encodeURIComponent(altUrl), { headers: hdrs });
-        const html = await r.text();
-        debugLines.push(`Alt "${p}": HTTP ${r.status}, ${html.length} ch, preview: "${html.slice(0,200).replace(/\s+/g,' ')}"`);
-      } catch(e) { /* ignore */ }
-    }
-  }
-
-  // ── Fetch content – primary: "Alle" (element=0) → w/19/w00000.htm ──────────
-  // Screenshot shows Element="- Alle -" (value=0) works; n2str(0)="00000"
-  // We fetch all-classes file and filter by class in the parser.
-  if (frameEntries.length === 0 && navbarData.weekValue) {
-    const { weekValue, classIdx } = navbarData;
-    const typeCode = navbarData.typeCode || 'w';
+  // ── Step 4: fetch all-classes content file (element=0 → w00000.htm) ──────
+  // URL pattern from doDisplayTimetable: type/week/typeN2str(element).htm
+  // Element "- Alle -" has value 0 → w/19/w00000.htm shows all classes
+  const entries = [];
+  if (navbarData.weekValue) {
+    const tc = navbarData.typeCode;
     const n2str = n => String(n).padStart(5, '0');
-
-    // Add Referer to simulate request from within the frameset
     const dataHdrs = { ...hdrs, 'Referer': settings.url };
 
-    // Try all available weeks, target week first
-    const allWeeks = navbarData.availableWeeks || [weekValue];
-    const orderedWeeks = [weekValue, ...[...allWeeks].reverse().filter(w => w !== weekValue)];
-
-    let found = 0;
+    // Try target week first, then all other available weeks
+    const allWeeks = navbarData.availableWeeks.length > 0
+      ? navbarData.availableWeeks : [navbarData.weekValue];
+    const orderedWeeks = [navbarData.weekValue,
+      ...[...allWeeks].reverse().filter(w => w !== navbarData.weekValue)];
 
     for (const wk of orderedWeeks) {
-      if (found > 0) break;
-
-      // "Alle" (element 0) first, then class-specific (element classIdx)
-      const elementIndices = [0, ...(classIdx > 0 ? [classIdx] : [])];
-      const candidates = elementIndices.flatMap(el => [
-        `${typeCode}/${wk}/${typeCode}${n2str(el)}.htm`,
-      ]);
-      // Also try day files
-      [1,2,3,4,5].forEach(n => candidates.push(`${typeCode}/${wk}/subst_${n2str(n)}.htm`));
-
-      const baseResolved = new URL(candidates[0], settings.url).href;
-      debugLines.push(`Versuche (KW ${wk}): ${candidates.slice(0,3).join(', ')}...`);
-      debugLines.push(`Basis-URL: ${baseResolved}`);
-
-      for (let i = 0; i < candidates.length; i++) {
-        const f = candidates[i];
+      // "Alle" (el=0) gives all classes in one file; class-specific as fallback
+      const elIndices = [0, ...(navbarData.classIdx > 0 ? [navbarData.classIdx] : [])];
+      let loaded = false;
+      for (const el of elIndices) {
+        const f = `${tc}/${wk}/${tc}${n2str(el)}.htm`;
         const fileUrl = new URL(f, settings.url).href;
         try {
           const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: dataHdrs });
-          const html = await r.text();
-          const preview = html.slice(0, 200).replace(/\s+/g, ' ');
-          debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch, preview: "${preview}"`);
+          const html = r.ok ? await r.text() : '';
+          debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch`);
           if (!r.ok || html.length < 200) continue;
-          found++;
           const d = new DOMParser().parseFromString(html, 'text/html');
-          // All-classes file: use full parser with class filter
-          frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+          entries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+          loaded = true;
           break;
         } catch (e) {
-          debugLines.push(`${f}: Fehler ${e.message}`);
+          debugLines.push(`${f}: ${e.message}`);
         }
       }
+      if (loaded) break;
     }
   }
-  debugLines.push(`Frame-Einträge gesamt: ${frameEntries.length}`);
 
-  // ── Fallback: known day-file names in same directory ──────────────────────
-  const dayEntries = [];
-  if (frameEntries.length === 0 && frameSrcs.length === 0) {
-    const dayFiles = ['subst_001.htm', 'subst_002.htm', 'subst_003.htm', 'subst_004.htm', 'subst_005.htm'];
-    let found = 0;
-    for (let i = 0; i < 5; i++) {
-      const dayUrl = baseDir + dayFiles[i];
-      const datumNorm = isoDateLocal(addDays(monday, i));
-      try {
-        const r = await fetch(usedProxy + encodeURIComponent(dayUrl), { headers: hdrs });
-        if (!r.ok) continue;
-        found++;
-        const html = await r.text();
-        const d = new DOMParser().parseFromString(html, 'text/html');
-        dayEntries.push(...parseMonListTable(d.querySelector('table.mon_list') || d.querySelector('table'), settings.klasse, datumNorm));
-      } catch { /* not available */ }
-    }
-    debugLines.push(`Fallback-Tagesdateien: ${found}/5, Einträge: ${dayEntries.length}`);
-  }
-
-  // ── Choose best result ─────────────────────────────────────────────────────
-  const allEntries = frameEntries.length > 0 ? frameEntries
-    : dayEntries.length > 0 ? dayEntries
-    : parseVertretungsplan(baseDoc, settings.klasse, targetDate);
-
-  debugLines.push(`Gesamte Einträge für "${settings.klasse}": ${allEntries.length}`);
-  return { entries: allEntries, debug: debugLines.join('\n') };
+  debugLines.push(`Einträge für "${settings.klasse}": ${entries.length}`);
+  return { entries, debug: debugLines.join('\n') };
 }
 
 function cellText(cell) {

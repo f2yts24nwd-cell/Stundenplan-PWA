@@ -496,22 +496,56 @@ function parseVertretungsplan(doc, klasse, targetDate) {
     return { entries, debugLines };
   }
 
-  // ── Fallback: no mon_title markers – scan tables directly ──────────────────
-  const entries = [];
-  const allTables = [...doc.querySelectorAll('table.mon_list, table.list, table')];
-  for (const table of allTables) {
-    if (table.querySelectorAll('tr').length < 2) continue;
-    let datumNorm = '';
-    let prev = table.previousElementSibling;
-    for (let i = 0; i < 5 && prev; i++, prev = prev.previousElementSibling) {
-      datumNorm = parseTitleDate(prev.textContent, monday);
-      if (datumNorm) break;
+  // ── Fallback: no mon_title markers ─────────────────────────────────────────
+  // Untis HTML without CSS classes: each day has its own <table>. The first
+  // row of each table is a navigation row ("4.5. Montag | [Dienstag] | …")
+  // holding the date. We parse ALL tables in document order, extracting the
+  // date from the first row of each table (or from previous siblings).
+  {
+    const allRows = [...doc.querySelectorAll('tr')];
+    let currentDatum = '';
+    let colMap = null;
+    const entries = [];
+
+    for (const row of allRows) {
+      const cells = [...row.querySelectorAll('td')];
+      const headers = [...row.querySelectorAll('th')];
+
+      // Single-cell row: navigation ("4.5. Montag | …") or "nicht freigegeben"
+      if (cells.length === 1 && !headers.length) {
+        const candidate = parseTitleDate(cells[0].textContent, monday);
+        if (candidate) {
+          currentDatum = candidate;
+          debugLines.push(`NavZeile: "${cells[0].textContent.replace(/\s+/g,' ').trim().slice(0,60)}" → ${currentDatum}`);
+          colMap = null;
+        }
+        continue;
+      }
+
+      // Header row → reset column map
+      if (headers.length && !colMap) {
+        colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
+        continue;
+      }
+
+      if (!cells.length) continue;
+      if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
+      if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
+
+      const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
+      const fach = get('fach'), stattFach = get('stattfach');
+      const raum = get('raum'), stattRaum = get('stattraum');
+      const info = get('info');
+      entries.push({
+        datumNorm: currentDatum, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
+        fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
+        typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
+      });
     }
-    entries.push(...parseDayRows([...table.querySelectorAll('tr')], klasse, datumNorm));
-    if (entries.length > 0) break;
+
+    debugLines.push(`Fallback: ${entries.length} Einträge`);
+    return { entries, debugLines };
   }
-  debugLines.push(`Fallback: ${entries.length} Einträge`);
-  return { entries, debugLines };
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────

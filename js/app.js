@@ -219,29 +219,46 @@ async function fetchPlan(settings, targetDate) {
   const debugLines = [];
   const monday = getMondayOf(targetDate);
 
-  // Step 1: Load the base page
-  debugLines.push(`Lade: ${settings.url}`);
-  const baseRes = await fetch(CORS_PROXY + encodeURIComponent(settings.url), { headers: hdrs });
-  debugLines.push(`Basis-Seite: HTTP ${baseRes.status}`);
-  if (!baseRes.ok) throw new Error(`HTTP ${baseRes.status} – ${baseRes.statusText}`);
+  // Try two CORS proxies – corsproxy.io sometimes strips Authorization header
+  const PROXIES = [
+    'https://corsproxy.io/?',
+    'https://api.allorigins.win/raw?url=',
+  ];
 
-  const baseHtml = await baseRes.text();
+  let baseHtml = '';
+  let usedProxy = '';
+
+  for (const proxy of PROXIES) {
+    try {
+      const r = await fetch(proxy + encodeURIComponent(settings.url), { headers: hdrs });
+      const text = await r.text();
+      debugLines.push(`${proxy}: HTTP ${r.status}, ${text.length} Zeichen`);
+      if (text.length > 100) {
+        baseHtml = text;
+        usedProxy = proxy;
+        break;
+      }
+    } catch (e) {
+      debugLines.push(`${proxy}: Fehler – ${e.message}`);
+    }
+  }
+
+  // Show raw HTML start to understand what we received
+  debugLines.push(`Roher HTML-Anfang: "${baseHtml.slice(0, 300)}"`);
+
+  if (!baseHtml) throw new Error('Alle Proxies liefern leere Antwort. Bitte URL und Zugangsdaten prüfen.');
+
   const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
-
-  // Show first 400 chars and all hrefs to diagnose JS-rendered pages
-  const bodyText = (baseDoc.body?.innerHTML || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
-  debugLines.push(`HTML-Inhalt: "${bodyText}"`);
   const hrefs = [...baseDoc.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).filter(Boolean).slice(0, 10);
   debugLines.push(`Links: ${hrefs.join(', ') || '(keine)'}`);
   const scripts = [...baseDoc.querySelectorAll('script[src]')].map(s => s.getAttribute('src')).slice(0, 5);
   debugLines.push(`Scripts: ${scripts.join(', ') || '(keine)'}`);
 
-  // Step 2: Try form submission (in case the base page has a form)
+  // Try form submission
   const { doc: formDoc, debug: formDebug } = await submitFilterForm(baseDoc, settings, targetDate, hdrs);
   debugLines.push(formDebug);
 
-  // Step 3: Try fetching day-specific sub-files (subst_001.htm – subst_005.htm)
-  // These are static Untis data files often separate from the JS shell
+  // Try fetching day-specific sub-files (subst_001.htm – subst_005.htm)
   const baseDir = settings.url.replace(/\/[^/]*$/, '/');
   const dayFiles = ['subst_001.htm', 'subst_002.htm', 'subst_003.htm', 'subst_004.htm', 'subst_005.htm'];
   let dayEntries = [];
@@ -251,7 +268,7 @@ async function fetchPlan(settings, targetDate) {
     const dayUrl = baseDir + dayFiles[i];
     const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
     try {
-      const r = await fetch(CORS_PROXY + encodeURIComponent(dayUrl), { headers: hdrs });
+      const r = await fetch(usedProxy + encodeURIComponent(dayUrl), { headers: hdrs });
       if (!r.ok) continue;
       dayFilesFound++;
       const html = await r.text();

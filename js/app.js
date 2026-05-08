@@ -396,16 +396,18 @@ async function fetchPlan(settings, targetDate) {
     }
   }
 
-  // ── Fetch content using correct Untis URL pattern: type/week/typeN2str.htm ──
-  // doDisplayTimetable (from untisscripts.js) builds:
-  //   url = type + "/" + week + "/" + type + n2str(element) + ".htm"
-  // e.g. "w/20/w00003.htm" for class 5C (element index 3) in KW 20
+  // ── Fetch content – primary: "Alle" (element=0) → w/19/w00000.htm ──────────
+  // Screenshot shows Element="- Alle -" (value=0) works; n2str(0)="00000"
+  // We fetch all-classes file and filter by class in the parser.
   if (frameEntries.length === 0 && navbarData.weekValue) {
     const { weekValue, classIdx } = navbarData;
     const typeCode = navbarData.typeCode || 'w';
     const n2str = n => String(n).padStart(5, '0');
 
-    // Try target week first, then all other available weeks
+    // Add Referer to simulate request from within the frameset
+    const dataHdrs = { ...hdrs, 'Referer': settings.url };
+
+    // Try all available weeks, target week first
     const allWeeks = navbarData.availableWeeks || [weekValue];
     const orderedWeeks = [weekValue, ...[...allWeeks].reverse().filter(w => w !== weekValue)];
 
@@ -414,17 +416,14 @@ async function fetchPlan(settings, targetDate) {
     for (const wk of orderedWeeks) {
       if (found > 0) break;
 
-      // Correct URL pattern: type/week/typeN2str(element).htm
-      const classFile = classIdx > 0
-        ? `${typeCode}/${wk}/${typeCode}${n2str(classIdx)}.htm`
-        : null;
+      // "Alle" (element 0) first, then class-specific (element classIdx)
+      const elementIndices = [0, ...(classIdx > 0 ? [classIdx] : [])];
+      const candidates = elementIndices.flatMap(el => [
+        `${typeCode}/${wk}/${typeCode}${n2str(el)}.htm`,
+      ]);
+      // Also try day files
+      [1,2,3,4,5].forEach(n => candidates.push(`${typeCode}/${wk}/subst_${n2str(n)}.htm`));
 
-      // Also try the day-substitution files with correct pattern
-      const dayFiles = [1,2,3,4,5].map(n => `${typeCode}/${wk}/subst_${n2str(n)}.htm`);
-
-      // Also probe element=1 (first class, 5A) to check if ANY data is accessible
-      const probeFile = `${typeCode}/${wk}/${typeCode}${n2str(1)}.htm`;
-      const candidates = [...(classFile ? [classFile] : []), probeFile, ...dayFiles];
       const baseResolved = new URL(candidates[0], settings.url).href;
       debugLines.push(`Versuche (KW ${wk}): ${candidates.slice(0,3).join(', ')}...`);
       debugLines.push(`Basis-URL: ${baseResolved}`);
@@ -433,23 +432,16 @@ async function fetchPlan(settings, targetDate) {
         const f = candidates[i];
         const fileUrl = new URL(f, settings.url).href;
         try {
-          const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: hdrs });
-          const html = await r.text(); // always read body to diagnose 404 content
-          const preview = html.slice(0, 300).replace(/\s+/g, ' ');
+          const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: dataHdrs });
+          const html = await r.text();
+          const preview = html.slice(0, 200).replace(/\s+/g, ' ');
           debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch, preview: "${preview}"`);
           if (!r.ok || html.length < 200) continue;
           found++;
           const d = new DOMParser().parseFromString(html, 'text/html');
-          if (i === 0 && classFile) {
-            // Class view: use main parser (finds mon_title sections)
-            frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
-          } else {
-            // Day file: associate with the day
-            const dayIdx = classFile ? i - 1 : i;
-            const datumNorm = addDays(monday, dayIdx).toISOString().slice(0, 10);
-            const tbl = d.querySelector('table.mon_list') || d.querySelector('table');
-            if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
-          }
+          // All-classes file: use full parser with class filter
+          frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+          break;
         } catch (e) {
           debugLines.push(`${f}: Fehler ${e.message}`);
         }

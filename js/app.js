@@ -245,8 +245,8 @@ async function fetchPlan(settings, targetDate) {
 
   if (!baseHtml) throw new Error('Alle Proxies liefern leere Antwort. Bitte URL und Zugangsdaten prüfen.');
 
-  // Show more of the raw HTML to see frameset or body structure
-  debugLines.push(`Roher HTML (700 Zeichen): "${baseHtml.slice(0, 700)}"`);
+  // Show full raw HTML of main page (it's only ~1976 chars)
+  debugLines.push(`Roher HTML (voll): "${baseHtml.replace(/\s+/g,' ')}"`);
 
   const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
   const baseDir = settings.url.replace(/\/[^/]*$/, '/');
@@ -281,9 +281,9 @@ async function fetchPlan(settings, targetDate) {
       debugLines.push(`Frame "${src}": HTTP ${r.status}, ${html.length} chars, ${tables.length} Tabellen`);
       if (!r.ok || !html) continue;
 
-      // Log welcome.htm content to understand expected page structure
-      if (src.includes('welcome')) {
-        debugLines.push(`welcome.htm (600 ch): "${html.slice(0, 600).replace(/\s+/g,' ')}"`);
+      // Log all small frames fully to find alternative data URLs
+      if (src.includes('welcome') || src.includes('title') || src.includes('fuss')) {
+        debugLines.push(`${src} Inhalt: "${html.replace(/\s+/g,' ')}"`);
         continue;
       }
 
@@ -380,6 +380,20 @@ async function fetchPlan(settings, targetDate) {
     }
   } catch (e) {
     debugLines.push(`untisscripts.js Fehler: ${e.message}`);
+  }
+
+  // ── Try alternative root-level substitution pages ─────────────────────────
+  {
+    const altPaths = ['subst_001.htm', 'vertretung.htm', 'vplan.htm', 'subst.htm',
+                      'aktuell.htm', 'today.htm', 'index.htm', ''];
+    for (const p of altPaths) {
+      try {
+        const altUrl = new URL(p, settings.url).href;
+        const r = await fetch(usedProxy + encodeURIComponent(altUrl), { headers: hdrs });
+        const html = await r.text();
+        debugLines.push(`Alt "${p}": HTTP ${r.status}, ${html.length} ch, preview: "${html.slice(0,200).replace(/\s+/g,' ')}"`);
+      } catch(e) { /* ignore */ }
+    }
   }
 
   // ── Fetch content using correct Untis URL pattern: type/week/typeN2str.htm ──

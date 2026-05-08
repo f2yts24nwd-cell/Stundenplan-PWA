@@ -520,14 +520,16 @@ function parseVertretungsplan(doc, klasse, targetDate) {
 
   // ── Fallback: no mon_title markers ─────────────────────────────────────────
   // Untis HTML without CSS classes: each day has its own <table>. The first
-  // row of each table is a navigation row ("4.5. Montag | [Dienstag] | …")
-  // holding the date. We parse ALL tables in document order, extracting the
-  // date from the first row of each table (or from previous siblings).
+  // row of each table is a navigation row listing all five weekdays. We parse
+  // ALL tables in document order. When the nav bar contains all 5 dates we use
+  // the section index (0=Mon … 4=Fri) to select the right date, so the result
+  // is correct regardless of whether the current day is marked differently.
   {
     const allRows = [...doc.querySelectorAll('tr')];
     let currentDatum = '';
     let colMap = null;
     const entries = [];
+    let navBarIndex = -1; // counts nav-bar rows that yielded a valid date
 
     for (const row of allRows) {
       const cells = [...row.querySelectorAll('td')];
@@ -535,11 +537,23 @@ function parseVertretungsplan(doc, klasse, targetDate) {
 
       // Single-cell row: navigation ("4.5. Montag | …") or "nicht freigegeben"
       if (cells.length === 1 && !headers.length) {
+        const cellText0 = cells[0].textContent;
         const active = extractActiveText(cells[0]);
-        const candidate = parseTitleDate(active || cells[0].textContent, monday);
+        let candidate = parseTitleDate(active || cellText0, monday);
         if (candidate) {
+          // If the nav bar contains 5+ dates (full-week bar, all plain text),
+          // parseTitleDate always returns the first date (Monday). Override it
+          // using the section index so each day's table gets the correct date.
+          const allDates = [...cellText0.matchAll(/(\d{1,2})\.(\d{1,2})\./g)];
+          if (allDates.length >= 5) {
+            navBarIndex = Math.min(navBarIndex + 1, 4);
+            const dm = allDates[navBarIndex];
+            candidate = `${monday.getFullYear()}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
+          } else {
+            navBarIndex++;
+          }
           currentDatum = candidate;
-          debugLines.push(`NavZeile: "${cells[0].textContent.replace(/\s+/g,' ').trim().slice(0,60)}" → ${currentDatum}`);
+          debugLines.push(`NavZeile[${navBarIndex}]: "${cellText0.replace(/\s+/g,' ').trim().slice(0,60)}" → ${currentDatum}`);
           colMap = null;
         }
         continue;

@@ -376,69 +376,57 @@ async function fetchPlan(settings, targetDate) {
     debugLines.push(`untisscripts.js Fehler: ${e.message}`);
   }
 
-  // ── Fetch content using topDir + week pattern ─────────────────────────────
+  // ── Fetch content using correct Untis URL pattern: type/week/typeN2str.htm ──
+  // doDisplayTimetable (from untisscripts.js) builds:
+  //   url = type + "/" + week + "/" + type + n2str(element) + ".htm"
+  // e.g. "w/20/w00003.htm" for class 5C (element index 3) in KW 20
   if (frameEntries.length === 0 && navbarData.weekValue) {
-    const { topDir, weekValue, classIdx } = navbarData;
+    const { weekValue, classIdx } = navbarData;
     const typeCode = navbarData.typeCode || 'w';
     const n2str = n => String(n).padStart(5, '0');
-    const weekInt = parseInt(weekValue, 10);
-    // All available weeks from navbar + n2str-padded variants, target week first
+
+    // Try target week first, then all other available weeks
     const allWeeks = navbarData.availableWeeks || [weekValue];
-    // Put target week first, then others in reverse order (most recent first)
     const orderedWeeks = [weekValue, ...[...allWeeks].reverse().filter(w => w !== weekValue)];
-    const weekDirs = [...new Set(orderedWeeks.flatMap(w => [w, n2str(parseInt(w, 10))]))];
-    debugLines.push(`Woche-Verzeichnisse: ${weekDirs.join(', ')}`);
-    const klasseName = settings.klasse.toLowerCase().replace(/\s+/g, '');
 
     let found = 0;
 
-    for (const wDir of weekDirs) {
+    for (const wk of orderedWeeks) {
       if (found > 0) break;
 
-      // Day files (5 per week)
-      const dayFiles = [1,2,3,4,5].map(n => `${topDir}${wDir}/subst_${n2str(n)}.htm`);
-      debugLines.push(`Tagesdateien (${wDir}): ${dayFiles.slice(0,2).join(', ')}...`);
-      for (let i = 0; i < 5; i++) {
-        const fileUrl = new URL(dayFiles[i], settings.url).href;
-        const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
+      // Correct URL pattern: type/week/typeN2str(element).htm
+      const classFile = classIdx > 0
+        ? `${typeCode}/${wk}/${typeCode}${n2str(classIdx)}.htm`
+        : null;
+
+      // Also try the day-substitution files with correct pattern
+      const dayFiles = [1,2,3,4,5].map(n => `${typeCode}/${wk}/subst_${n2str(n)}.htm`);
+
+      const candidates = [...(classFile ? [classFile] : []), ...dayFiles];
+      debugLines.push(`Versuche (KW ${wk}): ${candidates.slice(0,3).join(', ')}...`);
+
+      for (let i = 0; i < candidates.length; i++) {
+        const f = candidates[i];
+        const fileUrl = new URL(f, settings.url).href;
         try {
           const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: hdrs });
           const html = r.ok ? await r.text() : '';
-          debugLines.push(`${dayFiles[i]}: HTTP ${r.status}`);
+          debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch`);
           if (!r.ok || html.length < 200) continue;
           found++;
           const d = new DOMParser().parseFromString(html, 'text/html');
-          const tbl = d.querySelector('table.mon_list') || d.querySelector('table');
-          if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
-        } catch (e) {
-          debugLines.push(`${dayFiles[i]}: Fehler ${e.message}`);
-        }
-      }
-
-      // Class-specific files
-      if (found === 0) {
-        const classCandidates = classIdx > 0 ? [
-          `${topDir}${wDir}/${typeCode}${n2str(classIdx)}.htm`,   // w00003.htm (n2str)
-          `${topDir}${wDir}/${typeCode}${classIdx}.htm`,           // w3.htm
-          `${topDir}${wDir}/c${n2str(classIdx)}.htm`,             // c00003.htm
-          `${topDir}${wDir}/c${classIdx}.htm`,                     // c3.htm
-          `${topDir}${wDir}/${klasseName}.htm`,                    // 5c.htm
-        ] : [];
-        debugLines.push(`Klassendateien (${wDir}): ${classCandidates.join(', ')}`);
-        for (const f of classCandidates) {
-          try {
-            const r = await fetch(usedProxy + encodeURIComponent(new URL(f, settings.url).href), { headers: hdrs });
-            const html = r.ok ? await r.text() : '';
-            debugLines.push(`${f}: HTTP ${r.status}`);
-            if (r.ok && html.length > 200) {
-              found++;
-              const d = new DOMParser().parseFromString(html, 'text/html');
-              frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
-              break;
-            }
-          } catch (e) {
-            debugLines.push(`${f}: Fehler ${e.message}`);
+          if (i === 0 && classFile) {
+            // Class view: use main parser (finds mon_title sections)
+            frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+          } else {
+            // Day file: associate with the day
+            const dayIdx = classFile ? i - 1 : i;
+            const datumNorm = addDays(monday, dayIdx).toISOString().slice(0, 10);
+            const tbl = d.querySelector('table.mon_list') || d.querySelector('table');
+            if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
           }
+        } catch (e) {
+          debugLines.push(`${f}: Fehler ${e.message}`);
         }
       }
     }

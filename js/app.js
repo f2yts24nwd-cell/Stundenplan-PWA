@@ -266,8 +266,10 @@ async function fetchPlan(settings, targetDate) {
   debugLines.push(`Frames (DOM): ${frameSrcsFromDom.join(', ') || '(keine)'}`);
   debugLines.push(`Frames (Regex): ${frameSrcsFromRaw.join(', ') || '(keine)'}`);
 
-  // Fetch each frame and look for substitution tables
+  // Fetch each frame – for the navbar, extract select options to find content URLs
   const frameEntries = [];
+  let contentUrlsFromNavbar = [];
+
   for (const src of frameSrcs) {
     const frameUrl = new URL(src, settings.url).href;
     try {
@@ -278,12 +280,43 @@ async function fetchPlan(settings, targetDate) {
       debugLines.push(`Frame "${src}": HTTP ${r.status}, ${html.length} chars, ${tables.length} Tabellen`);
       if (!r.ok || !html) continue;
 
-      // Detect day from mon_title or filename (subst_001→day0, subst_002→day1 …)
+      // ── Navbar: parse selects and inline JS to find content URLs ──────────
+      if (src.includes('navbar') || src.includes('nav') || src.includes('head')) {
+        // Show first 800 chars of navbar HTML for diagnosis
+        debugLines.push(`Navbar-HTML: "${html.slice(0, 800)}"`);
+
+        // Extract all <select> option values (week→URL mappings)
+        for (const sel of fd.querySelectorAll('select')) {
+          const opts = [...sel.options].map(o => `${o.value.trim()}=${o.text.trim()}`);
+          debugLines.push(`Select "${sel.name || sel.id}": ${opts.slice(0, 8).join(' | ')}`);
+          // Collect option values that look like file paths
+          opts.forEach(o => {
+            const val = o.split('=')[0];
+            if (val && (val.endsWith('.htm') || val.endsWith('.html') || val.includes('/'))) {
+              contentUrlsFromNavbar.push(val);
+            }
+          });
+        }
+
+        // Inline JS often has URL patterns – show relevant parts
+        const inlineJs = [...fd.querySelectorAll('script:not([src])')].map(s => s.textContent).join('\n');
+        const jsSnippet = inlineJs.slice(0, 600);
+        debugLines.push(`Navbar JS: "${jsSnippet}"`);
+
+        // Extract string literals that look like .htm paths from the JS
+        const pathRe = /['"`]([^'"`]*\.htm[l]?[^'"`]*?)['"`]/gi;
+        let pm;
+        while ((pm = pathRe.exec(inlineJs)) !== null) {
+          if (!pm[1].includes(' ')) contentUrlsFromNavbar.push(pm[1]);
+        }
+        continue; // navbar itself has no substitution data
+      }
+
+      // ── Data frames: look for substitution tables ─────────────────────────
       const titleEls = [...fd.querySelectorAll('.mon_title')];
       if (titleEls.length > 0) {
         frameEntries.push(...parseVertretungsplan(fd, settings.klasse, targetDate));
       } else {
-        // Derive date from filename number
         const dayNum = src.match(/(\d+)\.[^.]+$/)?.[1];
         const idx = dayNum ? parseInt(dayNum, 10) - 1 : 0;
         const datumNorm = (idx >= 0 && idx < 5) ? addDays(monday, idx).toISOString().slice(0, 10) : '';
@@ -294,7 +327,41 @@ async function fetchPlan(settings, targetDate) {
       debugLines.push(`Frame "${src}" Fehler: ${e.message}`);
     }
   }
-  debugLines.push(`Frame-Einträge: ${frameEntries.length}`);
+
+  // Deduplicate navbar content URLs and try fetching them
+  contentUrlsFromNavbar = [...new Set(contentUrlsFromNavbar)];
+  debugLines.push(`Content-URLs aus Navbar: ${contentUrlsFromNavbar.join(', ') || '(keine)'}`);
+
+  if (frameEntries.length === 0 && contentUrlsFromNavbar.length > 0) {
+    const kw = getISOWeekNumber(monday);
+    const year = monday.getFullYear();
+
+    // Find the URL for the target week – match year+week number in the path
+    const weekStr = String(kw).padStart(2, '0');
+    const targetPattern = new RegExp(`${year}.*${weekStr}|${weekStr}.*${year}|w${year}${weekStr}`, 'i');
+    const weekUrls = contentUrlsFromNavbar.filter(u => targetPattern.test(u));
+    const urlsToTry = weekUrls.length > 0 ? weekUrls : contentUrlsFromNavbar.slice(0, 10);
+    debugLines.push(`Versuche URLs: ${urlsToTry.join(', ')}`);
+
+    for (const relUrl of urlsToTry) {
+      const absUrl = new URL(relUrl, settings.url).href;
+      try {
+        const r = await fetch(usedProxy + encodeURIComponent(absUrl), { headers: hdrs });
+        const html = r.ok ? await r.text() : '';
+        debugLines.push(`Content "${relUrl}": HTTP ${r.status}, ${html.length} chars`);
+        if (!r.ok || html.length < 100) continue;
+        const cd = new DOMParser().parseFromString(html, 'text/html');
+        const dayNum = relUrl.match(/(\d+)\.[^.]+$/)?.[1];
+        const idx = dayNum ? parseInt(dayNum, 10) - 1 : 0;
+        const datumNorm = (idx >= 0 && idx < 5) ? addDays(monday, idx).toISOString().slice(0, 10) : '';
+        const tbl = cd.querySelector('table.mon_list') || cd.querySelector('table');
+        if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
+      } catch (e) {
+        debugLines.push(`Content "${relUrl}" Fehler: ${e.message}`);
+      }
+    }
+  }
+  debugLines.push(`Frame-Einträge gesamt: ${frameEntries.length}`);
 
   // ── Fallback: known day-file names in same directory ──────────────────────
   const dayEntries = [];

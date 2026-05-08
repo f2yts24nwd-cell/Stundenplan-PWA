@@ -276,6 +276,11 @@ html, body {
   flex-wrap: wrap;
 }
 
+.entry-orig {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
 .entry-info {
   font-size: 0.8rem;
   color: #5c6bc0;

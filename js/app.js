@@ -328,6 +328,13 @@ async function fetchPlan(settings, targetDate) {
 
         debugLines.push(`topDir="${navbarData.topDir}", weekValue="${navbarData.weekValue}", classIdx=${navbarData.classIdx}, typeCode="${navbarData.typeCode || 'w'}"`);
         debugLines.push(`classNames: ${(navbarData.classNames || []).join(', ') || '(keine)'}`);
+
+        // Log any URL-building pattern in navbar inline JS
+        const urlBuildFn = inlineJs.match(/(function\s+\w*[Dd]isplay\w*[^}]+}|postMessage[^;]+;|location\.href[^;]+;)/);
+        if (urlBuildFn) debugLines.push(`Navbar URL-Funktion: "${urlBuildFn[0].slice(0, 300)}"`);
+        // Also show first 500 chars of inline JS for manual inspection
+        debugLines.push(`Navbar JS (500 ch): "${inlineJs.slice(0, 500)}"`);
+
         continue;
       }
 
@@ -347,78 +354,81 @@ async function fetchPlan(settings, targetDate) {
     }
   }
 
-  // ── Fetch untisscripts.js to learn doDisplayTimetable URL pattern ──────────
+  // ── Fetch untisscripts.js – show up to 4000 chars + find doDisplayTimetable ──
   try {
     const scriptUrl = baseDir + 'untisscripts.js';
     const sr = await fetch(usedProxy + encodeURIComponent(scriptUrl), { headers: hdrs });
     const scriptText = sr.ok ? await sr.text() : `HTTP ${sr.status}`;
-    debugLines.push(`untisscripts.js (1000 ch): "${scriptText.slice(0, 1000)}"`);
+    // Find doDisplayTimetable function for URL pattern insight
+    const fnIdx = scriptText.indexOf('doDisplayTimetable');
+    if (fnIdx >= 0) {
+      debugLines.push(`doDisplayTimetable @ ${fnIdx}: "${scriptText.slice(fnIdx, fnIdx + 400)}"`);
+    } else {
+      debugLines.push(`untisscripts.js (4000 ch): "${scriptText.slice(0, 4000)}"`);
+    }
   } catch (e) {
     debugLines.push(`untisscripts.js Fehler: ${e.message}`);
   }
 
-  // ── Fetch content using topDir + week pattern: t{week}/subst_001.htm ──────
+  // ── Fetch content using topDir + week pattern ─────────────────────────────
   if (frameEntries.length === 0 && navbarData.weekValue) {
     const { topDir, weekValue, classIdx } = navbarData;
-    const kw = getISOWeekNumber(monday);
-
-    // n2str from untisscripts.js: pads to 5 digits → subst_00001.htm
+    const typeCode = navbarData.typeCode || 'w';
     const n2str = n => String(n).padStart(5, '0');
-
-    // Try all 5 day files for the target week (5-digit padding per n2str)
-    const dayFiles = [1,2,3,4,5].map(n => `${topDir}${weekValue}/subst_${n2str(n)}.htm`);
-    debugLines.push(`Versuche Tagesdateien: ${dayFiles.join(', ')}`);
+    const weekInt = parseInt(weekValue, 10);
+    // Try both week dir formats: bare (t20/) and n2str-padded (t00020/)
+    const weekDirs = [...new Set([weekValue, n2str(weekInt)])];
+    const klasseName = settings.klasse.toLowerCase().replace(/\s+/g, '');
 
     let found = 0;
-    for (let i = 0; i < 5; i++) {
-      const fileUrl = new URL(dayFiles[i], settings.url).href;
-      const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
-      try {
-        const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: hdrs });
-        const html = r.ok ? await r.text() : '';
-        debugLines.push(`${dayFiles[i]}: HTTP ${r.status}, ${html.length} chars`);
-        if (!r.ok || html.length < 200) continue;
-        found++;
-        const d = new DOMParser().parseFromString(html, 'text/html');
-        const tbl = d.querySelector('table.mon_list') || d.querySelector('table');
-        if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
-      } catch (e) {
-        debugLines.push(`${dayFiles[i]}: Fehler ${e.message}`);
-      }
-    }
 
-    // If day files failed, try class-specific file patterns
-    if (found === 0) {
-      const typeCode = navbarData.typeCode || 'w';
-      const klasseName = settings.klasse.toLowerCase().replace(/\s+/g, '');
-      const candidateFiles = classIdx > 0 ? [
-        // n2str pattern (primary): w00003.htm
-        `${topDir}${weekValue}/${typeCode}${n2str(classIdx)}.htm`,
-        // short variants as fallback
-        `${topDir}${weekValue}/${typeCode}${classIdx}.htm`,
-        `${topDir}${weekValue}/c${n2str(classIdx)}.htm`,
-        `${topDir}${weekValue}/c${classIdx}.htm`,
-        `${topDir}${weekValue}/${klasseName}.htm`,
-        `${topDir}${weekValue}/v_kla.htm`,
-        `${topDir}${weekValue}/hp_kla.htm`,
-      ] : [
-        `${topDir}${weekValue}/v_kla.htm`,
-        `${topDir}${weekValue}/hp_kla.htm`,
-      ];
+    for (const wDir of weekDirs) {
+      if (found > 0) break;
 
-      debugLines.push(`Versuche Klassen-Dateien: ${candidateFiles.join(', ')}`);
-      for (const classFile of candidateFiles) {
+      // Day files (5 per week)
+      const dayFiles = [1,2,3,4,5].map(n => `${topDir}${wDir}/subst_${n2str(n)}.htm`);
+      debugLines.push(`Tagesdateien (${wDir}): ${dayFiles.slice(0,2).join(', ')}...`);
+      for (let i = 0; i < 5; i++) {
+        const fileUrl = new URL(dayFiles[i], settings.url).href;
+        const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
         try {
-          const r = await fetch(usedProxy + encodeURIComponent(new URL(classFile, settings.url).href), { headers: hdrs });
+          const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: hdrs });
           const html = r.ok ? await r.text() : '';
-          debugLines.push(`${classFile}: HTTP ${r.status}, ${html.length} chars`);
-          if (r.ok && html.length > 200) {
-            const d = new DOMParser().parseFromString(html, 'text/html');
-            frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
-            break;
-          }
+          debugLines.push(`${dayFiles[i]}: HTTP ${r.status}`);
+          if (!r.ok || html.length < 200) continue;
+          found++;
+          const d = new DOMParser().parseFromString(html, 'text/html');
+          const tbl = d.querySelector('table.mon_list') || d.querySelector('table');
+          if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
         } catch (e) {
-          debugLines.push(`${classFile}: Fehler ${e.message}`);
+          debugLines.push(`${dayFiles[i]}: Fehler ${e.message}`);
+        }
+      }
+
+      // Class-specific files
+      if (found === 0) {
+        const classCandidates = classIdx > 0 ? [
+          `${topDir}${wDir}/${typeCode}${n2str(classIdx)}.htm`,   // w00003.htm (n2str)
+          `${topDir}${wDir}/${typeCode}${classIdx}.htm`,           // w3.htm
+          `${topDir}${wDir}/c${n2str(classIdx)}.htm`,             // c00003.htm
+          `${topDir}${wDir}/c${classIdx}.htm`,                     // c3.htm
+          `${topDir}${wDir}/${klasseName}.htm`,                    // 5c.htm
+        ] : [];
+        debugLines.push(`Klassendateien (${wDir}): ${classCandidates.join(', ')}`);
+        for (const f of classCandidates) {
+          try {
+            const r = await fetch(usedProxy + encodeURIComponent(new URL(f, settings.url).href), { headers: hdrs });
+            const html = r.ok ? await r.text() : '';
+            debugLines.push(`${f}: HTTP ${r.status}`);
+            if (r.ok && html.length > 200) {
+              found++;
+              const d = new DOMParser().parseFromString(html, 'text/html');
+              frameEntries.push(...parseVertretungsplan(d, settings.klasse, targetDate));
+              break;
+            }
+          } catch (e) {
+            debugLines.push(`${f}: Fehler ${e.message}`);
+          }
         }
       }
     }

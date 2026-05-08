@@ -281,6 +281,12 @@ async function fetchPlan(settings, targetDate) {
       debugLines.push(`Frame "${src}": HTTP ${r.status}, ${html.length} chars, ${tables.length} Tabellen`);
       if (!r.ok || !html) continue;
 
+      // Log welcome.htm content to understand expected page structure
+      if (src.includes('welcome')) {
+        debugLines.push(`welcome.htm (600 ch): "${html.slice(0, 600).replace(/\s+/g,' ')}"`);
+        continue;
+      }
+
       // ── Navbar: extract topDir, week value, and class index ───────────────
       if (src.includes('navbar') || src.includes('nav')) {
         const inlineJs = [...fd.querySelectorAll('script:not([src])')].map(s => s.textContent).join('\n');
@@ -402,8 +408,12 @@ async function fetchPlan(settings, targetDate) {
       // Also try the day-substitution files with correct pattern
       const dayFiles = [1,2,3,4,5].map(n => `${typeCode}/${wk}/subst_${n2str(n)}.htm`);
 
-      const candidates = [...(classFile ? [classFile] : []), ...dayFiles];
+      // Also probe element=1 (first class, 5A) to check if ANY data is accessible
+      const probeFile = `${typeCode}/${wk}/${typeCode}${n2str(1)}.htm`;
+      const candidates = [...(classFile ? [classFile] : []), probeFile, ...dayFiles];
+      const baseResolved = new URL(candidates[0], settings.url).href;
       debugLines.push(`Versuche (KW ${wk}): ${candidates.slice(0,3).join(', ')}...`);
+      debugLines.push(`Basis-URL: ${baseResolved}`);
 
       for (let i = 0; i < candidates.length; i++) {
         const f = candidates[i];

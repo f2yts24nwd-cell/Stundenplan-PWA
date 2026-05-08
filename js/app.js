@@ -306,8 +306,14 @@ async function fetchPlan(settings, targetDate) {
 
           // Week selector: option value is a bare number matching KW
           if (opts.some(o => parseInt(o.value) === kw || parseInt(o.value) === kw - 1)) {
+            // Store ALL available week values for fallback attempts
+            navbarData.availableWeeks = opts.map(o => o.value).filter(v => /^\d+$/.test(v));
             const match = opts.find(o => parseInt(o.value) === kw);
             if (match) navbarData.weekValue = match.value;
+            // If target week not found, use the last available week
+            if (!match && navbarData.availableWeeks.length > 0) {
+              navbarData.weekValue = navbarData.availableWeeks[navbarData.availableWeeks.length - 1];
+            }
           }
 
           // Type selector (e.g. "w"=HP-Kla, "c"=Lehrer)
@@ -362,7 +368,7 @@ async function fetchPlan(settings, targetDate) {
     // Find doDisplayTimetable function for URL pattern insight
     const fnIdx = scriptText.indexOf('doDisplayTimetable');
     if (fnIdx >= 0) {
-      debugLines.push(`doDisplayTimetable @ ${fnIdx}: "${scriptText.slice(fnIdx, fnIdx + 400)}"`);
+      debugLines.push(`doDisplayTimetable @ ${fnIdx}: "${scriptText.slice(fnIdx, fnIdx + 800)}"`);
     } else {
       debugLines.push(`untisscripts.js (4000 ch): "${scriptText.slice(0, 4000)}"`);
     }
@@ -376,8 +382,12 @@ async function fetchPlan(settings, targetDate) {
     const typeCode = navbarData.typeCode || 'w';
     const n2str = n => String(n).padStart(5, '0');
     const weekInt = parseInt(weekValue, 10);
-    // Try both week dir formats: bare (t20/) and n2str-padded (t00020/)
-    const weekDirs = [...new Set([weekValue, n2str(weekInt)])];
+    // All available weeks from navbar + n2str-padded variants, target week first
+    const allWeeks = navbarData.availableWeeks || [weekValue];
+    // Put target week first, then others in reverse order (most recent first)
+    const orderedWeeks = [weekValue, ...[...allWeeks].reverse().filter(w => w !== weekValue)];
+    const weekDirs = [...new Set(orderedWeeks.flatMap(w => [w, n2str(parseInt(w, 10))]))];
+    debugLines.push(`Woche-Verzeichnisse: ${weekDirs.join(', ')}`);
     const klasseName = settings.klasse.toLowerCase().replace(/\s+/g, '');
 
     let found = 0;

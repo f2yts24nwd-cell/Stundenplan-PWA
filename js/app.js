@@ -84,41 +84,124 @@ function buildWeekLabel(targetDate) {
   return `KW ${kw} · ${formatDateShort(monday)}–${formatDateShort(friday)}.${friday.getFullYear()}`;
 }
 
-// Build the URL for a specific week. Untis typically uses ?week=YYYYWW or
-// ?d=YYYYMMDD. We append ?week=YYYYWW; if the server ignores it we still get
-// the current week (acceptable for simple setups).
-function buildWeekUrl(baseUrl, targetDate) {
-  const monday = getMondayOf(targetDate);
-  const year = monday.getFullYear();
-  const kw = String(getISOWeekNumber(monday)).padStart(2, '0');
-  const weekParam = `${year}${kw}`;
+// ── Fetch & parse ──────────────────────────────────────────────────────────
 
-  try {
-    const u = new URL(baseUrl);
-    u.searchParams.set('week', weekParam);
-    return u.toString();
-  } catch {
-    // Fallback: simple string append
-    const sep = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${sep}week=${weekParam}`;
+function authHeaders(settings) {
+  const h = {};
+  if (settings.user && settings.pass) {
+    h['Authorization'] = 'Basic ' + btoa(unescape(encodeURIComponent(`${settings.user}:${settings.pass}`)));
   }
+  return h;
 }
 
-// ── Fetch & parse ──────────────────────────────────────────────────────────
-async function fetchPlan(settings, targetDate) {
-  const weekUrl = buildWeekUrl(settings.url, targetDate);
-  const proxyUrl = CORS_PROXY + encodeURIComponent(weekUrl);
+// Returns true if the <select> is a calendar-week selector
+function isWeekSelector(select) {
+  const name = select.name.toLowerCase();
+  if (name.includes('week') || name.includes('kw') || name.includes('woche') || name.includes('calendar')) return true;
+  const opts = [...select.options];
+  return opts.some(o =>
+    /^\d{6}$/.test(o.value) ||
+    /KW\s*\d+/i.test(o.text) ||
+    /Woche\s*\d+/i.test(o.text)
+  );
+}
 
-  const headers = {};
-  if (settings.user && settings.pass) {
-    headers['Authorization'] = 'Basic ' + btoa(unescape(encodeURIComponent(`${settings.user}:${settings.pass}`)));
+// Find the option value that matches the target week (YYYYWW, bare KW number, or text match)
+function findWeekOption(opts, kw, year) {
+  const yyyyww = `${year}${String(kw).padStart(2, '0')}`;
+  let found = opts.find(o => o.value === yyyyww);
+  if (found) return found.value;
+  found = opts.find(o => parseInt(o.value, 10) === kw);
+  if (found) return found.value;
+  found = opts.find(o => o.text.includes(`KW ${kw}`) || o.text.includes(`KW${kw}`));
+  if (found) return found.value;
+  return null;
+}
+
+// Submits the Untis filter form with the correct week and "alle" class selection.
+// Returns a parsed Document on success, or null if no usable form was found.
+async function submitFilterForm(baseDoc, settings, targetDate, hdrs) {
+  const form = baseDoc.querySelector('form');
+  if (!form) return null;
+
+  const monday = getMondayOf(targetDate);
+  const kw = getISOWeekNumber(monday);
+  const year = monday.getFullYear();
+
+  const method = (form.getAttribute('method') || 'get').toLowerCase();
+  const action = form.getAttribute('action');
+  const actionUrl = action ? new URL(action, settings.url).href : settings.url;
+
+  const data = new URLSearchParams();
+
+  for (const el of form.elements) {
+    if (!el.name || el.disabled) continue;
+
+    if (el.tagName === 'SELECT') {
+      const opts = [...el.options];
+
+      if (isWeekSelector(el)) {
+        const v = findWeekOption(opts, kw, year);
+        data.set(el.name, v !== null ? v : (el.value || ''));
+        continue;
+      }
+
+      // Select "alle" / all-classes option if present
+      const alleOpt = opts.find(o =>
+        /^alle$/i.test(o.text.trim()) ||
+        /^alle\s/i.test(o.text.trim()) ||
+        o.value.toLowerCase() === 'alle' ||
+        o.value === '0'
+      );
+      if (alleOpt) {
+        data.set(el.name, alleOpt.value);
+        continue;
+      }
+
+      data.set(el.name, el.value || '');
+    } else if (el.type !== 'submit' && el.type !== 'button' && el.type !== 'reset' && el.type !== 'image') {
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        if (el.checked) data.set(el.name, el.value);
+      } else {
+        data.set(el.name, el.value || '');
+      }
+    }
   }
 
-  const res = await fetch(proxyUrl, { headers });
-  if (!res.ok) throw new Error(`HTTP ${res.status} – ${res.statusText}`);
+  let res;
+  if (method === 'post') {
+    res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl), {
+      method: 'POST',
+      headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: data.toString(),
+    });
+  } else {
+    const sep = actionUrl.includes('?') ? '&' : '?';
+    res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl + sep + data.toString()), {
+      headers: hdrs,
+    });
+  }
 
+  if (!res || !res.ok) return null;
   const html = await res.text();
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return new DOMParser().parseFromString(html, 'text/html');
+}
+
+async function fetchPlan(settings, targetDate) {
+  const hdrs = authHeaders(settings);
+
+  // Step 1: Load the base page to read the form structure
+  const baseRes = await fetch(CORS_PROXY + encodeURIComponent(settings.url), { headers: hdrs });
+  if (!baseRes.ok) throw new Error(`HTTP ${baseRes.status} – ${baseRes.statusText}`);
+  const baseHtml = await baseRes.text();
+  const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
+
+  // Step 2: Submit the form with correct week + "alle" selection
+  let doc = await submitFilterForm(baseDoc, settings, targetDate, hdrs);
+
+  // Fallback: parse the base page directly (shows current week, may be incomplete)
+  if (!doc) doc = baseDoc;
+
   return parseVertretungsplan(doc, settings.klasse, targetDate);
 }
 

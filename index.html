@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1a73e8">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="VPlan">
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <title>Vertretungsplan</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header id="header">
+    <span class="app-title">&#127981; Vertretungsplan</span>
+    <button id="settings-btn" class="icon-btn" aria-label="Einstellungen">&#9881;&#65039;</button>
+  </header>
+
+  <!-- Week navigation bar -->
+  <div id="week-bar">
+    <button id="prev-week-btn" class="nav-btn" aria-label="Vorwoche">&#8592;</button>
+    <span id="week-label">KW ??</span>
+    <button id="next-week-btn" class="nav-btn" aria-label="Nächste Woche">&#8594;</button>
+  </div>
+
+  <!-- Last updated -->
+  <div id="last-updated"></div>
+
+  <!-- Error banner (hidden by default) -->
+  <div id="error-banner" class="error-banner hidden"></div>
+
+  <!-- Main content -->
+  <main id="content">
+    <div class="loading">Lade Vertretungsplan&hellip;</div>
+  </main>
+
+  <!-- Settings overlay -->
+  <div id="settings-overlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Einstellungen">
+    <div class="overlay-card">
+      <h2>Einstellungen</h2>
+      <form id="settings-form" autocomplete="off">
+        <label for="s-url">URL des Vertretungsplans</label>
+        <input type="url" id="s-url" name="url" placeholder="https://…/default.htm" required>
+
+        <label for="s-user">Benutzername</label>
+        <input type="text" id="s-user" name="user" autocomplete="username">
+
+        <label for="s-pass">Passwort</label>
+        <input type="password" id="s-pass" name="pass" autocomplete="current-password">
+
+        <label for="s-klasse">Klasse</label>
+        <input type="text" id="s-klasse" name="klasse" placeholder="z. B. 10a" required>
+
+        <div class="form-actions">
+          <button type="button" id="settings-cancel-btn" class="btn-secondary">Abbrechen</button>
+          <button type="submit" class="btn-primary">Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

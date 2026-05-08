@@ -243,50 +243,86 @@ async function fetchPlan(settings, targetDate) {
     }
   }
 
-  // Show raw HTML start to understand what we received
-  debugLines.push(`Roher HTML-Anfang: "${baseHtml.slice(0, 300)}"`);
-
   if (!baseHtml) throw new Error('Alle Proxies liefern leere Antwort. Bitte URL und Zugangsdaten prüfen.');
 
+  // Show more of the raw HTML to see frameset or body structure
+  debugLines.push(`Roher HTML (700 Zeichen): "${baseHtml.slice(0, 700)}"`);
+
   const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
-  const hrefs = [...baseDoc.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).filter(Boolean).slice(0, 10);
-  debugLines.push(`Links: ${hrefs.join(', ') || '(keine)'}`);
-  const scripts = [...baseDoc.querySelectorAll('script[src]')].map(s => s.getAttribute('src')).slice(0, 5);
-  debugLines.push(`Scripts: ${scripts.join(', ') || '(keine)'}`);
-
-  // Try form submission
-  const { doc: formDoc, debug: formDebug } = await submitFilterForm(baseDoc, settings, targetDate, hdrs);
-  debugLines.push(formDebug);
-
-  // Try fetching day-specific sub-files (subst_001.htm – subst_005.htm)
   const baseDir = settings.url.replace(/\/[^/]*$/, '/');
-  const dayFiles = ['subst_001.htm', 'subst_002.htm', 'subst_003.htm', 'subst_004.htm', 'subst_005.htm'];
-  let dayEntries = [];
-  let dayFilesFound = 0;
 
-  for (let i = 0; i < 5; i++) {
-    const dayUrl = baseDir + dayFiles[i];
-    const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
+  // ── Frameset detection (classic Untis 2026 uses <FRAMESET>) ───────────────
+  // DOMParser may not preserve <frame> in all browsers; also search raw HTML
+  const frameSrcsFromDom = [...baseDoc.querySelectorAll('frame, iframe')]
+    .map(f => f.getAttribute('src')).filter(Boolean);
+
+  // Also parse raw HTML with regex as backup (DOMParser may drop frameset)
+  const frameSrcsFromRaw = [];
+  const frameRe = /<frame[^>]+src=["']?([^"'\s>]+)["']?/gi;
+  let fm;
+  while ((fm = frameRe.exec(baseHtml)) !== null) frameSrcsFromRaw.push(fm[1]);
+
+  const frameSrcs = [...new Set([...frameSrcsFromDom, ...frameSrcsFromRaw])];
+  debugLines.push(`Frames (DOM): ${frameSrcsFromDom.join(', ') || '(keine)'}`);
+  debugLines.push(`Frames (Regex): ${frameSrcsFromRaw.join(', ') || '(keine)'}`);
+
+  // Fetch each frame and look for substitution tables
+  const frameEntries = [];
+  for (const src of frameSrcs) {
+    const frameUrl = new URL(src, settings.url).href;
     try {
-      const r = await fetch(usedProxy + encodeURIComponent(dayUrl), { headers: hdrs });
-      if (!r.ok) continue;
-      dayFilesFound++;
-      const html = await r.text();
-      const d = new DOMParser().parseFromString(html, 'text/html');
-      dayEntries.push(...parseMonListTable(d.querySelector('table.mon_list') || d.querySelector('table'), settings.klasse, datumNorm));
-    } catch { /* day file not available */ }
+      const r = await fetch(usedProxy + encodeURIComponent(frameUrl), { headers: hdrs });
+      const html = r.ok ? await r.text() : '';
+      const fd = new DOMParser().parseFromString(html, 'text/html');
+      const tables = fd.querySelectorAll('table');
+      debugLines.push(`Frame "${src}": HTTP ${r.status}, ${html.length} chars, ${tables.length} Tabellen`);
+      if (!r.ok || !html) continue;
+
+      // Detect day from mon_title or filename (subst_001→day0, subst_002→day1 …)
+      const titleEls = [...fd.querySelectorAll('.mon_title')];
+      if (titleEls.length > 0) {
+        frameEntries.push(...parseVertretungsplan(fd, settings.klasse, targetDate));
+      } else {
+        // Derive date from filename number
+        const dayNum = src.match(/(\d+)\.[^.]+$/)?.[1];
+        const idx = dayNum ? parseInt(dayNum, 10) - 1 : 0;
+        const datumNorm = (idx >= 0 && idx < 5) ? addDays(monday, idx).toISOString().slice(0, 10) : '';
+        const tbl = fd.querySelector('table.mon_list') || fd.querySelector('table');
+        if (tbl) frameEntries.push(...parseMonListTable(tbl, settings.klasse, datumNorm));
+      }
+    } catch (e) {
+      debugLines.push(`Frame "${src}" Fehler: ${e.message}`);
+    }
   }
-  debugLines.push(`Tagesdateien gefunden: ${dayFilesFound}/5, Einträge: ${dayEntries.length}`);
+  debugLines.push(`Frame-Einträge: ${frameEntries.length}`);
 
-  // Choose best result
-  const doc = formDoc || baseDoc;
-  const pageEntries = parseVertretungsplan(doc, settings.klasse, targetDate);
-  debugLines.push(`Seitenparser-Einträge: ${pageEntries.length}`);
+  // ── Fallback: known day-file names in same directory ──────────────────────
+  const dayEntries = [];
+  if (frameEntries.length === 0 && frameSrcs.length === 0) {
+    const dayFiles = ['subst_001.htm', 'subst_002.htm', 'subst_003.htm', 'subst_004.htm', 'subst_005.htm'];
+    let found = 0;
+    for (let i = 0; i < 5; i++) {
+      const dayUrl = baseDir + dayFiles[i];
+      const datumNorm = addDays(monday, i).toISOString().slice(0, 10);
+      try {
+        const r = await fetch(usedProxy + encodeURIComponent(dayUrl), { headers: hdrs });
+        if (!r.ok) continue;
+        found++;
+        const html = await r.text();
+        const d = new DOMParser().parseFromString(html, 'text/html');
+        dayEntries.push(...parseMonListTable(d.querySelector('table.mon_list') || d.querySelector('table'), settings.klasse, datumNorm));
+      } catch { /* not available */ }
+    }
+    debugLines.push(`Fallback-Tagesdateien: ${found}/5, Einträge: ${dayEntries.length}`);
+  }
 
-  const entries = dayEntries.length > 0 ? dayEntries : pageEntries;
-  debugLines.push(`Gesamte Einträge für "${settings.klasse}": ${entries.length}`);
+  // ── Choose best result ─────────────────────────────────────────────────────
+  const allEntries = frameEntries.length > 0 ? frameEntries
+    : dayEntries.length > 0 ? dayEntries
+    : parseVertretungsplan(baseDoc, settings.klasse, targetDate);
 
-  return { entries, debug: debugLines.join('\n') };
+  debugLines.push(`Gesamte Einträge für "${settings.klasse}": ${allEntries.length}`);
+  return { entries: allEntries, debug: debugLines.join('\n') };
 }
 
 function cellText(cell) {

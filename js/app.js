@@ -493,11 +493,21 @@ function parseVertretungsplan(doc, klasse, targetDate) {
       const headers = [...row.querySelectorAll('th')];
       if (headers.length && !colMap) {
         colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
+        debugLines.push(`ColMap (th): ${JSON.stringify(colMap)}`);
         continue;
       }
 
       const cells = [...row.querySelectorAll('td')];
       if (!cells.length || cells.length === 1) continue;
+      // Some Untis versions use <td> for header rows — detect by matching known column names
+      if (!colMap && !row.textContent.toLowerCase().includes(klasseLower)) {
+        const tryMap = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
+        if ('klasse' in tryMap || 'stunde' in tryMap || 'fach' in tryMap) {
+          colMap = tryMap;
+          debugLines.push(`ColMap (td): ${JSON.stringify(colMap)}`);
+          continue;
+        }
+      }
       if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
       if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
 
@@ -567,14 +577,23 @@ function parseVertretungsplan(doc, klasse, targetDate) {
         continue;
       }
 
-      // Header row → reset column map
+      // Header row: <th> elements
       if (headers.length && !colMap) {
         colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
-        debugLines.push(`ColMap: ${JSON.stringify(colMap)}`);
+        debugLines.push(`ColMap (th): ${JSON.stringify(colMap)}`);
         continue;
       }
 
       if (!cells.length) continue;
+      // Some Untis versions use <td> for header rows — detect by matching known column names
+      if (!colMap && !row.textContent.toLowerCase().includes(klasseLower)) {
+        const tryMap = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
+        if ('klasse' in tryMap || 'stunde' in tryMap || 'fach' in tryMap) {
+          colMap = tryMap;
+          debugLines.push(`ColMap (td): ${JSON.stringify(colMap)}`);
+          continue;
+        }
+      }
       if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
       if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
 
@@ -777,7 +796,7 @@ function closeSettings() {
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Reset button – clears cached entries and service-worker cache, then re-fetches
+  // Reset button – clears all caches and reloads the page from scratch
   document.getElementById('reset-btn').addEventListener('click', async () => {
     lastEntries = null;
     weekOffset = 0;
@@ -785,7 +804,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const keys = await caches.keys();
       await Promise.all(keys.map(k => caches.delete(k)));
     }
-    fetchAndRender();
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    location.reload();
   });
 
   // Settings button

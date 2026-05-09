@@ -405,11 +405,11 @@ function buildColMap(headers) {
   const map = {};
   const variants = {
     klasse:     ['klasse', 'class', 'kl.', 'kl'],
-    stunde:     ['stunde', 'std', 'periode', 'hour'],
+    stunde:     ['stunde', 'std', 'periode', 'stde', 'hour'],
     fach:       ['fach'],          // matched before 'statt fach'
-    stattfach:  ['statt fach', 'statt-fach'],
+    stattfach:  ['statt fach', 'statt-fach', 'stattfach', '(fach)', 'orig'],
     raum:       ['raum'],          // matched before 'statt raum'
-    stattraum:  ['statt raum', 'statt-raum'],
+    stattraum:  ['statt raum', 'statt-raum', 'stattraum', '(raum)'],
     vertreter:  ['vertr. von', 'vertr.von', 'vertreter', 'lehrer', 'vert.'],
     info:       ['text', 'info', 'hinweis', 'bemerkung', 'art'],
     datum:      ['datum', 'date', 'tag'],
@@ -541,14 +541,22 @@ function parseVertretungsplan(doc, klasse, targetDate) {
         const active = extractActiveText(cells[0]);
         let candidate = parseTitleDate(active || cellText0, monday);
         if (candidate) {
-          // If the nav bar contains 5+ dates (full-week bar, all plain text),
-          // parseTitleDate always returns the first date (Monday). Override it
-          // using the section index so each day's table gets the correct date.
+          // When a nav bar lists all 5 weekdays in plain text, parseTitleDate
+          // always picks the first date (= Monday). Instead collect all dates
+          // from the cell, keep only the ones that fall within Mon–Fri of the
+          // target week (deduped, order preserved), and index into that list.
+          const weekIsos = [0,1,2,3,4].map(i => isoDateLocal(addDays(monday, i)));
           const allDates = [...cellText0.matchAll(/(\d{1,2})\.(\d{1,2})\./g)];
           if (allDates.length >= 5) {
-            navBarIndex = Math.min(navBarIndex + 1, 4);
-            const dm = allDates[navBarIndex];
-            candidate = `${monday.getFullYear()}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
+            const weekDayDates = [...new Set(
+              allDates
+                .map(dm => `${monday.getFullYear()}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`)
+                .filter(iso => weekIsos.includes(iso))
+            )];
+            if (weekDayDates.length === 5) {
+              navBarIndex = Math.min(navBarIndex + 1, 4);
+              candidate = weekDayDates[navBarIndex];
+            }
           } else {
             navBarIndex++;
           }
@@ -562,6 +570,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
       // Header row → reset column map
       if (headers.length && !colMap) {
         colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
+        debugLines.push(`ColMap: ${JSON.stringify(colMap)}`);
         continue;
       }
 
@@ -768,6 +777,17 @@ function closeSettings() {
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Reset button – clears cached entries and service-worker cache, then re-fetches
+  document.getElementById('reset-btn').addEventListener('click', async () => {
+    lastEntries = null;
+    weekOffset = 0;
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    fetchAndRender();
+  });
+
   // Settings button
   document.getElementById('settings-btn').addEventListener('click', openSettings);
   document.getElementById('settings-cancel-btn').addEventListener('click', closeSettings);

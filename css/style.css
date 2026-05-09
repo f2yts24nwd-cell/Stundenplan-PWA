@@ -51,6 +51,12 @@ html, body {
   letter-spacing: 0.01em;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .icon-btn {
   background: none;
   border: none;

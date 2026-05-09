@@ -478,12 +478,12 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
   const content = document.getElementById('content');
   const monday = getMondayOf(targetDate);
 
-  // Update the separate debug container (hidden by default, toggled by button)
+  // Update debug content inside settings panel (visible only when settings is open)
   const debugContainer = document.getElementById('debug-container');
-  const debugBtn = document.getElementById('debug-btn');
+  const debugSection = document.getElementById('debug-section');
   if (debug && debugContainer) {
-    debugContainer.innerHTML = `<strong>Diagnose:</strong><pre>${escHtml(debug)}</pre>`;
-    if (debugBtn) debugBtn.classList.remove('hidden');
+    debugContainer.innerHTML = `<pre>${escHtml(debug)}</pre>`;
+    if (debugSection) debugSection.classList.remove('hidden');
   }
 
   // Week not published: no real data tables found at all
@@ -635,10 +635,33 @@ function openSettings() {
 }
 function closeSettings() { document.getElementById('settings-overlay').classList.add('hidden'); }
 
+// ── Ripple effect ──────────────────────────────────────────────────────────
+function addRipple(el) {
+  el.addEventListener('pointerdown', (e) => {
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    const size = Math.max(el.offsetWidth, el.offsetHeight);
+    const rect = el.getBoundingClientRect();
+    ripple.style.cssText =
+      `width:${size}px;height:${size}px;` +
+      `left:${e.clientX - rect.left - size / 2}px;` +
+      `top:${e.clientY - rect.top - size / 2}px`;
+    el.appendChild(ripple);
+    ripple.addEventListener('animationend', () => ripple.remove());
+  });
+}
+
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('debug-btn').addEventListener('click', () => {
-    document.getElementById('debug-container').classList.toggle('hidden');
+  // Ripple on all interactive buttons
+  document.querySelectorAll('.icon-btn, .nav-btn').forEach(addRipple);
+
+  // Debug toggle inside settings
+  document.getElementById('debug-toggle-btn').addEventListener('click', () => {
+    const container = document.getElementById('debug-container');
+    const label = document.getElementById('debug-toggle-label');
+    const isHidden = container.classList.toggle('hidden');
+    label.textContent = isHidden ? 'Diagnose anzeigen' : 'Diagnose ausblenden';
   });
 
   document.getElementById('reset-btn').addEventListener('click', async () => {

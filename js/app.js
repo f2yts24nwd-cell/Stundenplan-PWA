@@ -2,49 +2,39 @@
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const SETTINGS_KEY = 'vplan_settings';
-const CORS_PROXY = 'https://corsproxy.io/?';
+const PROXIES = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const DAY_NAMES = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+const WEEKDAY_LONG  = ['montag','dienstag','mittwoch','donnerstag','freitag'];
+const WEEKDAY_SHORT = ['mo','di','mi','do','fr'];
 
 // ── State ──────────────────────────────────────────────────────────────────
-let weekOffset = 0;       // offset from auto-detected target week
-let lastEntries = null;   // last successfully fetched entries
+let weekOffset = 0;
+let lastEntries = null;
 let refreshTimer = null;
 
 // ── Settings ───────────────────────────────────────────────────────────────
 function loadSettings() {
-  try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); }
+  catch { return {}; }
 }
+function saveSettings(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+function settingsAreComplete(s) { return s && s.url && s.klasse; }
 
-function saveSettings(s) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
-}
-
-function settingsAreComplete(s) {
-  return s && s.url && s.klasse;
-}
-
-// ── Date / week helpers ────────────────────────────────────────────────────
+// ── Date helpers ───────────────────────────────────────────────────────────
 function addDays(date, n) {
   const d = new Date(date);
   d.setDate(d.getDate() + n);
   return d;
 }
-
 function getMondayOf(date) {
   const d = new Date(date);
-  const day = d.getDay(); // 0=Sun
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
   d.setHours(0, 0, 0, 0);
   return d;
 }
-
 function getISOWeekNumber(date) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
@@ -52,49 +42,30 @@ function getISOWeekNumber(date) {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
-
 function getAutoTargetDate() {
   const now = new Date();
-  const day = now.getDay(); // 5=Friday
-  // Saturday (6), Sunday (0), or Friday after noon → show next week
+  const day = now.getDay();
   if (day === 6 || day === 0 || (day === 5 && now.getHours() >= 12)) {
     return addDays(now, day === 6 ? 2 : day === 0 ? 1 : 7);
   }
   return now;
 }
-
-function getTargetDate() {
-  const base = getAutoTargetDate();
-  return addDays(base, weekOffset * 7);
-}
-
-function formatDate(date) {
-  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
-function formatDateShort(date) {
-  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
-}
-
-// LOCAL date → "YYYY-MM-DD" without UTC offset shift (toISOString() uses UTC)
+function getTargetDate() { return addDays(getAutoTargetDate(), weekOffset * 7); }
+function formatDateShort(date) { return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }); }
 function isoDateLocal(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
-
-// Build the week label shown in the header bar
 function buildWeekLabel(targetDate) {
   const monday = getMondayOf(targetDate);
   const friday = addDays(monday, 4);
   const kw = getISOWeekNumber(monday);
-  // formatDateShort returns "08.05." (trailing dot in de-DE), so no extra dot needed
   return `KW ${kw} · ${formatDateShort(monday)}–${formatDateShort(friday)}${friday.getFullYear()}`;
 }
 
-// ── Fetch & parse ──────────────────────────────────────────────────────────
-
+// ── HTTP ───────────────────────────────────────────────────────────────────
 function authHeaders(settings) {
   const h = {};
   if (settings.user && settings.pass) {
@@ -103,251 +74,161 @@ function authHeaders(settings) {
   return h;
 }
 
-// Returns true if the <select> is a calendar-week selector
-function isWeekSelector(select) {
-  const name = select.name.toLowerCase();
-  if (name.includes('week') || name.includes('kw') || name.includes('woche') || name.includes('calendar')) return true;
-  const opts = [...select.options];
-  return opts.some(o =>
-    /^\d{6}$/.test(o.value) ||
-    /KW\s*\d+/i.test(o.text) ||
-    /Woche\s*\d+/i.test(o.text) ||
-    /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(o.text.trim()) // e.g. "4.5.2026"
-  );
+async function fetchThroughProxy(url, hdrs, debugLines) {
+  for (const proxy of PROXIES) {
+    try {
+      const r = await fetch(proxy + encodeURIComponent(url), { headers: hdrs });
+      if (r.status === 429) { debugLines && debugLines.push(`  ${proxy.split('?')[0]}: 429`); continue; }
+      const text = await r.text();
+      if (r.ok && text.length > 100) return { html: text, proxy };
+      debugLines && debugLines.push(`  ${proxy.split('?')[0]}: HTTP ${r.status}, ${text.length} ch`);
+    } catch (e) {
+      debugLines && debugLines.push(`  ${proxy.split('?')[0]}: ${e.message}`);
+    }
+  }
+  return { html: '', proxy: '' };
 }
 
-// Find the option value matching the target week.
-// Handles: YYYYWW, bare KW number, and German date "D.M.YYYY" (Monday of week).
-function findWeekOption(opts, kw, year, monday) {
-  const yyyyww = `${year}${String(kw).padStart(2, '0')}`;
-  const d = monday.getDate();
-  const m = monday.getMonth() + 1;
-  // All plausible text/value representations of the target Monday
-  const candidates = [
-    yyyyww,                                                              // 202618
-    `${d}.${m}.${year}`,                                                 // 4.5.2026
-    `${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}.${year}`, // 04.05.2026
-    `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, // 2026-05-04
-    String(kw),
-  ];
-  for (const c of candidates) {
-    const found = opts.find(o => o.value === c || o.text.trim() === c);
-    if (found) return found.value;
-  }
-  // Text contains KW number
-  const byKw = opts.find(o => o.text.includes(`KW ${kw}`) || o.text.includes(`KW${kw}`));
-  if (byKw) return byKw.value;
-  return null;
+// Extract <frame src="..."> URLs from raw HTML (DOMParser drops framesets)
+function extractFrameSrcs(html) {
+  const re = /<frame[^>]+src=["']?([^"'\s>]+)["']?/gi;
+  const out = [];
+  let m;
+  while ((m = re.exec(html)) !== null) out.push(m[1]);
+  return out;
 }
 
-// Submits the Untis filter form changing ONLY the week selector.
-// All other dropdowns (Art, Element, etc.) keep their page-default values.
-// Returns { doc, debug } where doc is a parsed Document (or null) and
-// debug is a string describing what happened.
-async function submitFilterForm(baseDoc, settings, targetDate, hdrs) {
-  const form = baseDoc.querySelector('form');
-  const debugLines = [];
+// Parse navbar JS to extract week selector value, class index, type code
+function parseNavbarMeta(navDoc, monday, klasse) {
+  const meta = { weekValue: '', classIdx: 0, typeCode: 'w', availableWeeks: [] };
+  const inlineJs = [...navDoc.querySelectorAll('script:not([src])')].map(s => s.textContent).join('\n');
 
-  if (!form) {
-    debugLines.push('Kein <form> gefunden auf der Seite.');
-    return { doc: null, debug: debugLines.join('\n') };
+  const classesM = inlineJs.match(/var\s+classes\s*=\s*\[([^\]]+)\]/);
+  if (classesM) {
+    const names = classesM[1].match(/"([^"]+)"/g)?.map(s => s.slice(1, -1)) || [];
+    const idx = names.findIndex(n => n.toLowerCase() === klasse.toLowerCase());
+    meta.classIdx = idx >= 0 ? idx + 1 : 0;
   }
 
-  const monday = getMondayOf(targetDate);
   const kw = getISOWeekNumber(monday);
-  const year = monday.getFullYear();
-
-  const method = (form.getAttribute('method') || 'get').toLowerCase();
-  const action = form.getAttribute('action');
-  const actionUrl = action ? new URL(action, settings.url).href : settings.url;
-  debugLines.push(`Formular: method=${method}, action=${actionUrl}`);
-
-  const data = new URLSearchParams();
-  const selects = [...form.querySelectorAll('select[name]')];
-  debugLines.push(`Dropdowns: ${selects.map(s => `${s.name}="${s.value}"`).join(', ')}`);
-
-  for (const el of form.elements) {
-    if (!el.name || el.disabled) continue;
-
-    if (el.tagName === 'SELECT') {
-      const opts = [...el.options];
-      if (isWeekSelector(el)) {
-        const v = findWeekOption(opts, kw, year, monday);
-        const chosen = v !== null ? v : (el.value || '');
-        data.set(el.name, chosen);
-        debugLines.push(`Woche-Select "${el.name}": "${el.value}" → "${chosen}" (KW${kw} ${monday.getDate()}.${monday.getMonth()+1}.${year})`);
-      } else {
-        // Keep page default – do NOT override Art/Element/other dropdowns
-        data.set(el.name, el.value || '');
-      }
-    } else if (el.type !== 'submit' && el.type !== 'button' && el.type !== 'reset' && el.type !== 'image') {
-      if (el.type === 'checkbox' || el.type === 'radio') {
-        if (el.checked) data.set(el.name, el.value);
-      } else {
-        data.set(el.name, el.value || '');
-      }
+  for (const sel of navDoc.querySelectorAll('select')) {
+    const opts = [...sel.options];
+    if (opts.some(o => parseInt(o.value) === kw || parseInt(o.value) === kw - 1)) {
+      meta.availableWeeks = opts.map(o => o.value).filter(v => /^\d+$/.test(v));
+      const match = opts.find(o => parseInt(o.value) === kw);
+      meta.weekValue = match ? match.value
+        : meta.availableWeeks[meta.availableWeeks.length - 1] || '';
+    }
+    if ((sel.name || '').toLowerCase() === 'type' && opts.length > 0) {
+      meta.typeCode = opts[0].value;
     }
   }
-
-  debugLines.push(`Sende: ${data.toString()}`);
-
-  let res;
-  try {
-    if (method === 'post') {
-      res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl), {
-        method: 'POST',
-        headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: data.toString(),
-      });
-    } else {
-      const sep = actionUrl.includes('?') ? '&' : '?';
-      res = await fetch(CORS_PROXY + encodeURIComponent(actionUrl + sep + data.toString()), {
-        headers: hdrs,
-      });
-    }
-  } catch (err) {
-    debugLines.push(`Fetch-Fehler: ${err.message}`);
-    return { doc: null, debug: debugLines.join('\n') };
-  }
-
-  debugLines.push(`Antwort: HTTP ${res.status}`);
-  if (!res.ok) return { doc: null, debug: debugLines.join('\n') };
-
-  const html = await res.text();
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const titles = doc.querySelectorAll('.mon_title');
-  const tables = doc.querySelectorAll('table');
-  debugLines.push(`mon_title-Elemente: ${titles.length}, Tabellen: ${tables.length}`);
-  if (titles.length) debugLines.push(`Erster Titel: "${titles[0].textContent.trim()}"`);
-
-  return { doc, debug: debugLines.join('\n') };
+  return meta;
 }
 
+// ── Fetcher: try multiple strategies, pick the one that yields entries ─────
 async function fetchPlan(settings, targetDate) {
   const hdrs = authHeaders(settings);
   const debugLines = [];
   const monday = getMondayOf(targetDate);
 
-  // ── Step 1: fetch main page (try both proxies, skip on 429) ──────────────
-  const PROXIES = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
-  let baseHtml = '';
-  let usedProxy = '';
+  // Step 1: fetch the user-configured URL
+  debugLines.push(`URL: ${settings.url}`);
+  const base = await fetchThroughProxy(settings.url, hdrs, debugLines);
+  if (!base.html) throw new Error('Proxy nicht erreichbar oder Rate Limit. Bitte etwas warten.');
+  debugLines.push(`Basis: ${base.html.length} Zeichen`);
 
-  for (const proxy of PROXIES) {
-    try {
-      const r = await fetch(proxy + encodeURIComponent(settings.url), { headers: hdrs });
-      if (r.status === 429) { debugLines.push(`${proxy}: 429 Rate limit`); continue; }
-      const text = await r.text();
-      debugLines.push(`Proxy: ${proxy.split('?')[0]}, HTTP ${r.status}`);
-      if (r.ok && text.length > 100) { baseHtml = text; usedProxy = proxy; break; }
-    } catch (e) {
-      debugLines.push(`Proxy Fehler: ${e.message}`);
+  let best = { entries: [], debugLines: [], source: '' };
+  const tryParse = (html, source) => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const result = parseVertretungsplan(doc, settings.klasse, targetDate);
+    debugLines.push(`${source}: ${result.entries.length} Einträge`);
+    if (result.entries.length > best.entries.length) {
+      best = { entries: result.entries, debugLines: result.debugLines, source };
     }
-  }
-  if (!baseHtml) throw new Error('Proxy nicht erreichbar oder Rate Limit. Bitte etwas warten.');
+  };
 
-  const baseDoc = new DOMParser().parseFromString(baseHtml, 'text/html');
+  // Try parsing base directly (works when URL points straight at the data page)
+  tryParse(base.html, 'Basis-URL');
 
-  // ── Step 2: find navbar frame src via regex (DOMParser drops frameset) ───
-  const frameRe = /<frame[^>]+src=["']?([^"'\s>]+)["']?/gi;
-  const allFrames = [];
-  let fm;
-  while ((fm = frameRe.exec(baseHtml)) !== null) allFrames.push(fm[1]);
-  const navbarSrc = allFrames.find(s => s.includes('navbar') || s.includes('nav'));
-  debugLines.push(`Frames: ${allFrames.join(', ') || '(keine)'}`);
+  // Step 2: if no entries yet, follow frames (frameset layout)
+  if (best.entries.length === 0) {
+    const frames = extractFrameSrcs(base.html);
+    debugLines.push(`Frames: ${frames.length ? frames.join(', ') : '(keine)'}`);
 
-  // ── Step 3: fetch only the navbar frame ──────────────────────────────────
-  const navbarData = { weekValue: '', classIdx: 0, typeCode: 'w', availableWeeks: [] };
-  if (navbarSrc) {
-    const navUrl = new URL(navbarSrc, settings.url).href;
-    try {
-      const r = await fetch(usedProxy + encodeURIComponent(navUrl), { headers: hdrs });
-      if (r.ok) {
+    // Find navbar frame to extract week metadata
+    const navbarSrc = frames.find(s => /nav/i.test(s));
+    let nav = null;
+    if (navbarSrc) {
+      try {
+        const navUrl = new URL(navbarSrc, settings.url).href;
+        const r = await fetch(base.proxy + encodeURIComponent(navUrl), { headers: hdrs });
+        if (r.ok) {
+          const navDoc = new DOMParser().parseFromString(await r.text(), 'text/html');
+          nav = parseNavbarMeta(navDoc, monday, settings.klasse);
+          debugLines.push(`Navbar: KW=${nav.weekValue}, Type="${nav.typeCode}", ClassIdx=${nav.classIdx}`);
+        }
+      } catch (e) {
+        debugLines.push(`Navbar-Fehler: ${e.message}`);
+      }
+    }
+
+    // Try non-navbar frames directly (some Untis layouts have a 'main' frame with current data)
+    for (const frame of frames) {
+      if (/nav/i.test(frame)) continue;
+      try {
+        const fUrl = new URL(frame, settings.url).href;
+        const r = await fetch(base.proxy + encodeURIComponent(fUrl), { headers: hdrs });
+        if (!r.ok) continue;
         const html = await r.text();
-        const fd = new DOMParser().parseFromString(html, 'text/html');
-        const inlineJs = [...fd.querySelectorAll('script:not([src])')].map(s => s.textContent).join('\n');
-
-        // Extract classes array → find index of configured class (1-based)
-        const classesM = inlineJs.match(/var\s+classes\s*=\s*\[([^\]]+)\]/);
-        if (classesM) {
-          const names = classesM[1].match(/"([^"]+)"/g)?.map(s => s.slice(1, -1)) || [];
-          const idx = names.findIndex(n => n.toLowerCase() === settings.klasse.toLowerCase());
-          navbarData.classIdx = idx >= 0 ? idx + 1 : 0;
-        }
-
-        const kw = getISOWeekNumber(monday);
-        for (const sel of fd.querySelectorAll('select')) {
-          const opts = [...sel.options];
-          // Week selector: option values are bare KW numbers
-          if (opts.some(o => parseInt(o.value) === kw || parseInt(o.value) === kw - 1)) {
-            navbarData.availableWeeks = opts.map(o => o.value).filter(v => /^\d+$/.test(v));
-            const match = opts.find(o => parseInt(o.value) === kw);
-            navbarData.weekValue = match ? match.value
-              : navbarData.availableWeeks[navbarData.availableWeeks.length - 1] || '';
-          }
-          // Type selector
-          if ((sel.name || '').toLowerCase() === 'type' && opts.length > 0) {
-            navbarData.typeCode = opts[0].value;
-          }
-        }
-        debugLines.push(`KW ${navbarData.weekValue}, Klasse-Idx ${navbarData.classIdx}, Type "${navbarData.typeCode}"`);
+        if (html.length > 200) tryParse(html, `Frame ${frame.split('/').pop()}`);
+        if (best.entries.length > 0) break;
+      } catch (e) {
+        debugLines.push(`Frame ${frame}: ${e.message}`);
       }
-    } catch (e) {
-      debugLines.push(`Navbar Fehler: ${e.message}`);
+    }
+
+    // Try common Untis content paths constructed from navbar metadata
+    if (best.entries.length === 0 && nav && nav.weekValue) {
+      const tc = nav.typeCode || 'w';
+      const padd = n => String(n).padStart(5, '0');
+      const elIndices = [0, ...(nav.classIdx > 0 ? [nav.classIdx] : [])];
+      const weeks = [nav.weekValue, ...[...nav.availableWeeks].reverse().filter(w => w !== nav.weekValue)];
+
+      outer: for (const wk of weeks) {
+        for (const el of elIndices) {
+          const path = `${tc}/${wk}/${tc}${padd(el)}.htm`;
+          try {
+            const fileUrl = new URL(path, settings.url).href;
+            const r = await fetch(base.proxy + encodeURIComponent(fileUrl), { headers: hdrs });
+            if (!r.ok) continue;
+            const html = await r.text();
+            if (html.length < 200) continue;
+            tryParse(html, path);
+            if (best.entries.length > 0) break outer;
+          } catch (e) {
+            debugLines.push(`${path}: ${e.message}`);
+          }
+        }
+      }
     }
   }
 
-  // ── Step 4: fetch all-classes content file (element=0 → w00000.htm) ──────
-  // URL pattern from doDisplayTimetable: type/week/typeN2str(element).htm
-  // Element "- Alle -" has value 0 → w/19/w00000.htm shows all classes
-  const entries = [];
-  if (navbarData.weekValue) {
-    const tc = navbarData.typeCode;
-    const n2str = n => String(n).padStart(5, '0');
-    const dataHdrs = { ...hdrs, 'Referer': settings.url };
-
-    // Try target week first, then all other available weeks
-    const allWeeks = navbarData.availableWeeks.length > 0
-      ? navbarData.availableWeeks : [navbarData.weekValue];
-    const orderedWeeks = [navbarData.weekValue,
-      ...[...allWeeks].reverse().filter(w => w !== navbarData.weekValue)];
-
-    for (const wk of orderedWeeks) {
-      // "Alle" (el=0) gives all classes in one file; class-specific as fallback
-      const elIndices = [0, ...(navbarData.classIdx > 0 ? [navbarData.classIdx] : [])];
-      let loaded = false;
-      for (const el of elIndices) {
-        const f = `${tc}/${wk}/${tc}${n2str(el)}.htm`;
-        const fileUrl = new URL(f, settings.url).href;
-        try {
-          const r = await fetch(usedProxy + encodeURIComponent(fileUrl), { headers: dataHdrs });
-          const html = r.ok ? await r.text() : '';
-          debugLines.push(`${f}: HTTP ${r.status}, ${html.length} ch`);
-          if (!r.ok || html.length < 200) continue;
-          const d = new DOMParser().parseFromString(html, 'text/html');
-          const parsed = parseVertretungsplan(d, settings.klasse, targetDate);
-          entries.push(...parsed.entries);
-          debugLines.push(...parsed.debugLines);
-          loaded = true;
-          break;
-        } catch (e) {
-          debugLines.push(`${f}: ${e.message}`);
-        }
-      }
-      if (loaded) break;
-    }
-  }
-
-  debugLines.push(`Einträge für "${settings.klasse}": ${entries.length}`);
-  return { entries, debug: debugLines.join('\n') };
+  if (best.source) debugLines.push(`══ Ergebnis aus: ${best.source} ══`);
+  return {
+    entries: best.entries,
+    debug: debugLines.concat(best.debugLines).join('\n'),
+  };
 }
 
+// ── Parsing helpers ────────────────────────────────────────────────────────
 function cellText(cell) {
   return cell ? cell.textContent.replace(/\s+/g, ' ').trim() : '';
 }
 
-// In Untis nav bars the current day is plain text; the other days are <a> links.
-// Returns text from non-anchor child nodes so parseTitleDate sees only the active day.
+// Returns text from non-anchor child nodes – in Untis nav bars the current
+// day is plain text while other days are <a> links, so this isolates the
+// current day from the rest.
 function extractActiveText(cell) {
   const parts = [];
   for (const node of cell.childNodes) {
@@ -357,66 +238,42 @@ function extractActiveText(cell) {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-// Extract YYYY-MM-DD from a day title or datum-column value.
-// Handles: "8.5.2026 Freitag", "8.5. Freitag" (year from monday),
-//          "Freitag" or "Fr" (weekday offset from monday).
+// Parse "8.5.2026", "8.5.", or weekday name → ISO date YYYY-MM-DD
 function parseTitleDate(text, monday) {
-  // Full date with 4-digit year: "8.5.2026"
   let m = text.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-  // Short date without year: "8.5." — derive year from reference Monday
   if (monday) {
     m = text.match(/(\d{1,2})\.(\d{1,2})\./);
     if (m) return `${monday.getFullYear()}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-    // Full or abbreviated weekday name → offset from monday
-    const WD      = ['montag','dienstag','mittwoch','donnerstag','freitag'];
-    const WD_SHORT = ['mo','di','mi','do','fr'];
     const t = text.toLowerCase().trim();
     for (let i = 0; i < 5; i++) {
-      if (t.includes(WD[i])) return isoDateLocal(addDays(monday, i));
+      if (t.includes(WEEKDAY_LONG[i])) return isoDateLocal(addDays(monday, i));
     }
-    // Abbreviated names only when text is short to avoid false positives
     if (t.length <= 6) {
       for (let i = 0; i < 5; i++) {
-        if (t.startsWith(WD_SHORT[i]) || t === WD_SHORT[i]) return isoDateLocal(addDays(monday, i));
+        if (t.startsWith(WEEKDAY_SHORT[i]) || t === WEEKDAY_SHORT[i]) return isoDateLocal(addDays(monday, i));
       }
     }
   }
   return '';
 }
 
-// Determine entry type from actual column values (LMG/Untis semantics):
-// Fach    = replacement subject ("---" means lesson is cancelled)
-// stattFach = original scheduled subject
-// Raum    = replacement room
-// stattRaum = original room
-function detectTypFromColumns(fach, stattFach, raum, stattRaum, info) {
-  const infoL = info.toLowerCase();
-  if (infoL.includes('and.raum') || infoL.includes('raumänderung')) return 'raum';
-  if (!fach || fach === '---') return 'ausfall';
-  if (fach === stattFach && raum !== stattRaum && raum && raum !== '---') return 'raum';
-  if (fach !== stattFach) return 'vertretung';
-  return 'other';
-}
-
-// Map actual LMG column header texts to canonical keys.
-// LMG columns: Klasse(n) | Stunde | Fach | statt Fach | Raum | statt Raum | Vertr. von | Text
+// Map column header texts to canonical keys
 function buildColMap(headers) {
   const map = {};
   const variants = {
-    klasse:     ['klasse', 'class', 'kl.', 'kl'],
-    stunde:     ['stunde', 'std', 'periode', 'stde', 'hour'],
-    fach:       ['fach'],          // matched before 'statt fach'
-    stattfach:  ['statt fach', 'statt-fach', 'stattfach', '(fach)', 'orig'],
-    raum:       ['raum'],          // matched before 'statt raum'
-    stattraum:  ['statt raum', 'statt-raum', 'stattraum', '(raum)'],
-    vertreter:  ['vertr. von', 'vertr.von', 'vertreter', 'lehrer', 'vert.'],
-    info:       ['text', 'info', 'hinweis', 'bemerkung', 'art'],
-    datum:      ['datum', 'date', 'tag'],
+    klasse:    ['klasse', 'klassen', 'class', 'kl.', 'kl'],
+    stunde:    ['stunde', 'std.', 'std', 'periode', 'stde', 'hour'],
+    fach:      ['fach'],
+    stattfach: ['statt fach', 'statt-fach', 'stattfach', '(fach)', 'orig. fach'],
+    raum:      ['raum'],
+    stattraum: ['statt raum', 'statt-raum', 'stattraum', '(raum)', 'orig. raum'],
+    vertreter: ['vertr. von', 'vertr.von', 'vertretung', 'vertreter', 'lehrer', 'vert.'],
+    info:      ['text', 'info', 'hinweis', 'bemerkung', 'art'],
+    datum:     ['datum', 'date', 'tag'],
   };
   headers.forEach((h, i) => {
     for (const [key, vs] of Object.entries(variants)) {
-      // Use exact-prefix match to avoid 'fach' matching 'statt fach' first
       if (vs.some(v => h === v || h.startsWith(v))) {
         if (!(key in map)) map[key] = i;
         break;
@@ -426,207 +283,152 @@ function buildColMap(headers) {
   return map;
 }
 
-// Match a row against the target class using the klasse column when available.
-// Handles multi-class entries like "7B, 7D": splits on whitespace/commas and
-// checks for an exact token match so "6C" never matches "6A" or "K2".
-function rowMatchesKlasse(row, cells, colMap, klasseLower) {
-  if (colMap !== null && colMap.klasse !== undefined) {
-    const cell = cells[colMap.klasse];
-    if (cell) {
-      const raw = cellText(cell).toLowerCase();
-      return raw.split(/[\s,;\/]+/).some(part => part === klasseLower);
-    }
+// True if the row's klasse column matches the configured class.
+// Handles multi-class entries like "7B, 7D" via exact-token match.
+function rowMatchesKlasse(cells, colMap, klasseLower) {
+  if (colMap && colMap.klasse !== undefined && cells[colMap.klasse]) {
+    const raw = cellText(cells[colMap.klasse]).toLowerCase();
+    return raw.split(/[\s,;\/]+/).filter(Boolean).some(part => part === klasseLower);
   }
-  return row.textContent.toLowerCase().includes(klasseLower);
+  return false;
 }
 
-// Parse rows (array of <tr>) belonging to one day section.
-function parseDayRows(rows, klasse, datumNorm) {
-  const klasseLower = klasse.toLowerCase().trim();
-  let colMap = null;
-  const entries = [];
-  for (const row of rows) {
-    const headers = [...row.querySelectorAll('th')];
-    if (headers.length && !colMap) {
-      colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
-      continue;
-    }
-    const cells = [...row.querySelectorAll('td')];
-    if (!cells.length || cells.length === 1) continue;
-    if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
-    if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
-    const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
-    const fach = get('fach'), stattFach = get('stattfach');
-    const raum = get('raum'), stattRaum = get('stattraum');
-    const info = get('info');
-    entries.push({
-      datumNorm, datum: get('datum'), stunde: get('stunde'), klasse: get('klasse'),
-      fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
-      typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
-    });
+// Heuristic: does this row look like a column-header row?
+function looksLikeHeader(cells) {
+  if (cells.length < 3) return false;
+  const map = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
+  // Need at least 3 of: klasse, stunde, fach, raum, info → that's a header
+  let score = 0;
+  for (const k of ['klasse','stunde','fach','raum','info','stattfach','stattraum']) {
+    if (k in map) score++;
   }
-  return entries;
+  return score >= 3;
 }
 
-// Main parser – returns { entries, debugLines }.
-// Strategy A: one big table where td.mon_title rows separate each day (Untis w00000.htm).
-// Main parser – returns { entries, debugLines }.
-// Scans ALL <tr> elements in document order. A row is a "title row" when:
-//   - the row itself has class mon_title, OR
-//   - the row contains a td/th.mon_title cell, OR
-//   - the row lives inside a table.mon_title ancestor.
-// This handles every known Untis HTML layout without needing to know the exact structure.
+// Detect entry type from values (LMG / Untis semantics)
+function detectTypFromColumns(fach, stattFach, raum, stattRaum, info) {
+  const infoL = (info || '').toLowerCase();
+  if (infoL.includes('and.raum') || infoL.includes('raumänderung')) return 'raum';
+  if (!fach || fach === '---') return 'ausfall';
+  if (fach === stattFach && raum !== stattRaum && raum && raum !== '---') return 'raum';
+  if (stattFach && fach !== stattFach) return 'vertretung';
+  return 'other';
+}
+
+// ── Unified single-pass parser ─────────────────────────────────────────────
+// Walks ALL <tr> elements in document order. Three kinds of rows:
+//   1. Day-separator: row whose visible text contains exactly one weekday
+//      date for this week (after stripping <a> anchors that hold other days)
+//      → resets currentDate and colMap
+//   2. Header row: cells contain enough column-name keywords (≥3)
+//      → builds colMap
+//   3. Data row: ≥3 cells, klasse column matches → entry
 function parseVertretungsplan(doc, klasse, targetDate) {
   const monday = getMondayOf(targetDate);
-  const debugLines = [];
   const klasseLower = klasse.toLowerCase().trim();
+  const debugLines = [];
+  const entries = [];
 
-  // ── Strategy A: document-order scan ───────────────────────────────────────
-  if (doc.querySelector('.mon_title')) {
-    const allRows = [...doc.querySelectorAll('tr')];
-    let currentDatum = '';
-    let colMap = null;
-    const entries = [];
+  debugLines.push(`Suche Klasse "${klasse}", KW${getISOWeekNumber(monday)} ab ${isoDateLocal(monday)}`);
 
-    for (const row of allRows) {
-      // Is this row a day-title separator?
-      const isTitleRow =
-        row.classList.contains('mon_title') ||
-        !!row.querySelector('td.mon_title, th.mon_title') ||
-        !!row.closest('table.mon_title, table.mon_head');
+  const allRows = [...doc.querySelectorAll('tr')];
+  if (!allRows.length) {
+    debugLines.push('Keine <tr>-Elemente gefunden');
+    return { entries, debugLines };
+  }
+  debugLines.push(`Zeilen: ${allRows.length}`);
 
-      if (isTitleRow) {
-        const titleEl = row.querySelector('td.mon_title, th.mon_title') || row;
-        const activeTitle = titleEl !== row ? extractActiveText(titleEl) : '';
-        currentDatum = parseTitleDate(activeTitle || titleEl.textContent, monday);
-        debugLines.push(`Tag: "${titleEl.textContent.replace(/\s+/g,' ').trim().slice(0,50)}" → ${currentDatum || '(kein Datum)'}`);
+  const weekIsos = [0,1,2,3,4].map(i => isoDateLocal(addDays(monday, i)));
+
+  let currentDate = '';
+  let colMap = null;
+  let navBarIndex = -1;
+  const stats = { sep: 0, header: 0, data: 0, skipKlasse: 0, skipNoCells: 0 };
+
+  for (const row of allRows) {
+    const cells = [...row.querySelectorAll('td')];
+    const headers = [...row.querySelectorAll('th')];
+    const tdAndTh = [...cells, ...headers];
+
+    // ── 1. Day separator detection ────────────────────────────────────────
+    // a) Single-cell row OR row with td.mon_title cell
+    const titleCell = row.querySelector('td.mon_title, th.mon_title');
+    const isSingleCell = cells.length === 1 && headers.length === 0;
+    if (isSingleCell || titleCell) {
+      const cell = titleCell || cells[0] || row;
+      const fullText = cell.textContent.replace(/\s+/g, ' ').trim();
+
+      // Approach A: Use only non-anchor text (current day is plain text)
+      const activeText = extractActiveText(cell);
+      let dateCandidate = parseTitleDate(activeText || fullText, monday);
+
+      // Approach B: If cell contains all 5 weekday dates, use section index
+      const allDates = [...fullText.matchAll(/(\d{1,2})\.(\d{1,2})\./g)];
+      if (allDates.length >= 5) {
+        const weekDates = [...new Set(
+          allDates
+            .map(dm => `${monday.getFullYear()}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`)
+            .filter(iso => weekIsos.includes(iso))
+        )];
+        if (weekDates.length === 5) {
+          navBarIndex = Math.min(navBarIndex + 1, 4);
+          dateCandidate = weekDates[navBarIndex];
+        }
+      }
+
+      if (dateCandidate) {
+        currentDate = dateCandidate;
         colMap = null;
-        continue;
+        stats.sep++;
+        debugLines.push(`▶ Tag ${currentDate}: "${fullText.slice(0, 60)}"`);
       }
-
-      const headers = [...row.querySelectorAll('th')];
-      if (headers.length && !colMap) {
-        colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
-        debugLines.push(`ColMap (th): ${JSON.stringify(colMap)}`);
-        continue;
-      }
-
-      const cells = [...row.querySelectorAll('td')];
-      if (!cells.length || cells.length === 1) continue;
-      // Some Untis versions use <td> for header rows — detect by matching known column names
-      if (!colMap && !rowMatchesKlasse(row, cells, null, klasseLower)) {
-        const tryMap = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
-        if ('klasse' in tryMap || 'stunde' in tryMap || 'fach' in tryMap) {
-          colMap = tryMap;
-          debugLines.push(`ColMap (td): ${JSON.stringify(colMap)}`);
-          continue;
-        }
-      }
-      if (!rowMatchesKlasse(row, cells, colMap, klasseLower)) continue;
-      if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
-
-      const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
-      const fach = get('fach'), stattFach = get('stattfach');
-      const raum = get('raum'), stattRaum = get('stattraum');
-      const info = get('info');
-      const rawDatum = get('datum');
-      const datumNorm = (rawDatum ? parseTitleDate(rawDatum, monday) : '') || currentDatum;
-      entries.push({
-        datumNorm, datum: rawDatum, stunde: get('stunde'), klasse: get('klasse'),
-        fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
-        typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
-      });
+      continue;
     }
 
-    debugLines.push(`Strategy A: ${entries.length} Einträge für Klasse "${klasse}"`);
-    return { entries, debugLines };
-  }
-
-  // ── Fallback: no mon_title markers ─────────────────────────────────────────
-  // Untis HTML without CSS classes: each day has its own <table>. The first
-  // row of each table is a navigation row listing all five weekdays. We parse
-  // ALL tables in document order. When the nav bar contains all 5 dates we use
-  // the section index (0=Mon … 4=Fri) to select the right date, so the result
-  // is correct regardless of whether the current day is marked differently.
-  {
-    const allRows = [...doc.querySelectorAll('tr')];
-    let currentDatum = '';
-    let colMap = null;
-    const entries = [];
-    let navBarIndex = -1; // counts nav-bar rows that yielded a valid date
-
-    for (const row of allRows) {
-      const cells = [...row.querySelectorAll('td')];
-      const headers = [...row.querySelectorAll('th')];
-
-      // Single-cell row: navigation ("4.5. Montag | …") or "nicht freigegeben"
-      if (cells.length === 1 && !headers.length) {
-        const cellText0 = cells[0].textContent;
-        const active = extractActiveText(cells[0]);
-        let candidate = parseTitleDate(active || cellText0, monday);
-        if (candidate) {
-          // When a nav bar lists all 5 weekdays in plain text, parseTitleDate
-          // always picks the first date (= Monday). Instead collect all dates
-          // from the cell, keep only the ones that fall within Mon–Fri of the
-          // target week (deduped, order preserved), and index into that list.
-          const weekIsos = [0,1,2,3,4].map(i => isoDateLocal(addDays(monday, i)));
-          const allDates = [...cellText0.matchAll(/(\d{1,2})\.(\d{1,2})\./g)];
-          if (allDates.length >= 5) {
-            const weekDayDates = [...new Set(
-              allDates
-                .map(dm => `${monday.getFullYear()}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`)
-                .filter(iso => weekIsos.includes(iso))
-            )];
-            if (weekDayDates.length === 5) {
-              navBarIndex = Math.min(navBarIndex + 1, 4);
-              candidate = weekDayDates[navBarIndex];
-            }
-          } else {
-            navBarIndex++;
-          }
-          currentDatum = candidate;
-          debugLines.push(`NavZeile[${navBarIndex}]: "${cellText0.replace(/\s+/g,' ').trim().slice(0,60)}" → ${currentDatum}`);
-          colMap = null;
-        }
-        continue;
-      }
-
-      // Header row: <th> elements
-      if (headers.length && !colMap) {
-        colMap = buildColMap(headers.map(c => c.textContent.trim().toLowerCase()));
-        debugLines.push(`ColMap (th): ${JSON.stringify(colMap)}`);
-        continue;
-      }
-
-      if (!cells.length) continue;
-      // Some Untis versions use <td> for header rows — detect by matching known column names
-      if (!colMap && !rowMatchesKlasse(row, cells, null, klasseLower)) {
-        const tryMap = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
-        if ('klasse' in tryMap || 'stunde' in tryMap || 'fach' in tryMap) {
-          colMap = tryMap;
-          debugLines.push(`ColMap (td): ${JSON.stringify(colMap)}`);
-          continue;
-        }
-      }
-      if (!rowMatchesKlasse(row, cells, colMap, klasseLower)) continue;
-      if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
-
-      const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
-      const fach = get('fach'), stattFach = get('stattfach');
-      const raum = get('raum'), stattRaum = get('stattraum');
-      const info = get('info');
-      const rawDatum = get('datum');
-      const datumNorm = (rawDatum ? parseTitleDate(rawDatum, monday) : '') || currentDatum;
-      entries.push({
-        datumNorm, datum: rawDatum, stunde: get('stunde'), klasse: get('klasse'),
-        fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
-        typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
-      });
+    // ── 2. Header row detection ───────────────────────────────────────────
+    if (!colMap && tdAndTh.length >= 3 && looksLikeHeader(tdAndTh)) {
+      colMap = buildColMap(tdAndTh.map(c => c.textContent.trim().toLowerCase()));
+      stats.header++;
+      debugLines.push(`▶ Spalten: ${JSON.stringify(colMap)}`);
+      continue;
     }
 
-    debugLines.push(`Fallback: ${entries.length} Einträge für Klasse "${klasse}"`);
-    return { entries, debugLines };
+    // ── 3. Data row ───────────────────────────────────────────────────────
+    if (cells.length < 3) { stats.skipNoCells++; continue; }
+    if (!colMap) {
+      colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
+    }
+
+    if (!rowMatchesKlasse(cells, colMap, klasseLower)) {
+      stats.skipKlasse++;
+      continue;
+    }
+
+    const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
+    const fach = get('fach');
+    const stattFach = get('stattfach');
+    const raum = get('raum');
+    const stattRaum = get('stattraum');
+    const info = get('info');
+    const rawDatum = get('datum');
+    const datumNorm = (rawDatum ? parseTitleDate(rawDatum, monday) : '') || currentDate;
+
+    entries.push({
+      datumNorm, datum: rawDatum,
+      stunde: get('stunde'), klasse: get('klasse'),
+      fach, stattFach, raum, stattRaum,
+      vertreter: get('vertreter'), info,
+      typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
+    });
+    stats.data++;
   }
+
+  debugLines.push(
+    `Statistik: ${stats.sep} Trenner, ${stats.header} Header, ` +
+    `${stats.data} Treffer, ${stats.skipKlasse} andere Klasse, ` +
+    `${stats.skipNoCells} zu klein`
+  );
+  return { entries, debugLines };
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────
@@ -634,34 +436,14 @@ function render(entries, targetDate, debug) {
   const content = document.getElementById('content');
   const monday = getMondayOf(targetDate);
 
-  // Build a map: YYYY-MM-DD → entries[]
   const byDate = {};
-  for (let i = 0; i < 5; i++) {
-    const d = addDays(monday, i);
-    byDate[isoDateLocal(d)] = [];
-  }
+  for (let i = 0; i < 5; i++) byDate[isoDateLocal(addDays(monday, i))] = [];
 
-  // Also bucket by weekday index for entries without a parseable date
   for (const e of entries) {
     if (e.datumNorm && byDate.hasOwnProperty(e.datumNorm)) {
       byDate[e.datumNorm].push(e);
     } else {
-      // Try to match by day name in datum field
-      let placed = false;
-      for (let i = 0; i < 5; i++) {
-        const d = addDays(monday, i);
-        const iso = isoDateLocal(d);
-        if (e.datum && DAY_NAMES[d.getDay()] && e.datum.toLowerCase().includes(DAY_NAMES[d.getDay()].toLowerCase().slice(0, 2))) {
-          byDate[iso].push(e);
-          placed = true;
-          break;
-        }
-      }
-      // If we still couldn't place it, drop into the monday bucket as fallback
-      if (!placed) {
-        const mondayIso = isoDateLocal(monday);
-        byDate[mondayIso].push(e);
-      }
+      byDate[isoDateLocal(monday)].push(e);
     }
   }
 
@@ -669,42 +451,39 @@ function render(entries, targetDate, debug) {
     const date = new Date(iso + 'T00:00:00');
     const dayName = WEEKDAY_LABELS[date.getDay() - 1] || DAY_NAMES[date.getDay()];
     const dateStr = formatDateShort(date) + date.getFullYear();
-
-    let entriesHtml;
-    if (dayEntries.length === 0) {
-      entriesHtml = `<div class="no-change">Kein Ausfall</div>`;
-    } else {
-      entriesHtml = dayEntries.map(e => renderEntry(e)).join('');
-    }
-
+    const body = dayEntries.length
+      ? dayEntries.map(renderEntry).join('')
+      : `<div class="no-change">Kein Ausfall</div>`;
     return `
       <div class="day-card">
         <div class="day-header">
           <span class="day-name">${dayName}</span>
           <span class="day-date">${dateStr}</span>
         </div>
-        ${entriesHtml}
+        ${body}
       </div>`;
   }).join('');
 
-  const debugHtml = debug ? `<div class="debug-panel"><strong>Diagnose:</strong><pre>${escHtml(debug)}</pre></div>` : '';
-  content.innerHTML = (html || '<div class="loading">Keine Eintr&auml;ge gefunden.</div>') + debugHtml;
+  const debugHtml = debug
+    ? `<div class="debug-panel"><strong>Diagnose:</strong><pre>${escHtml(debug)}</pre></div>`
+    : '';
+  content.innerHTML = (html || '<div class="loading">Keine Einträge gefunden.</div>') + debugHtml;
 }
 
 function renderEntry(e) {
-  const typClass = e.typ === 'ausfall' ? 'ausfall' : e.typ === 'vertretung' ? 'vertretung' : e.typ === 'raum' ? 'raum' : '';
+  const typClass = e.typ === 'ausfall' ? 'ausfall'
+    : e.typ === 'vertretung' ? 'vertretung'
+    : e.typ === 'raum' ? 'raum' : '';
 
   let badge = '';
-  if (e.typ === 'ausfall')     badge = '<span class="entry-badge badge-ausfall">Ausfall</span>';
+  if (e.typ === 'ausfall')        badge = '<span class="entry-badge badge-ausfall">Ausfall</span>';
   else if (e.typ === 'vertretung') badge = '<span class="entry-badge badge-vertretung">Vertretung</span>';
-  else if (e.typ === 'raum')   badge = '<span class="entry-badge badge-raum">and.Raum</span>';
+  else if (e.typ === 'raum')       badge = '<span class="entry-badge badge-raum">and.Raum</span>';
 
-  // Subject line: show replacement subject + original struck-through if different
   const fachDisplay = e.fach && e.fach !== '---' ? escHtml(e.fach) : '<em>entfällt</em>';
   const origFach = e.stattFach && e.stattFach !== e.fach && e.stattFach !== '---'
     ? ` <span class="entry-orig">statt ${escHtml(e.stattFach)}</span>` : '';
 
-  // Room line
   const raumNew  = e.raum && e.raum !== '---' ? escHtml(e.raum) : '';
   const raumOrig = e.stattRaum && e.stattRaum !== '---' && e.stattRaum !== e.raum
     ? `<span class="entry-orig">statt ${escHtml(e.stattRaum)}</span>` : '';
@@ -716,7 +495,7 @@ function renderEntry(e) {
 
   return `
     <div class="entry ${typClass}">
-      <div class="entry-stunde">${escHtml(e.stunde)}</div>
+      <div class="entry-stunde">${escHtml(e.stunde || '')}</div>
       <div class="entry-details">
         <div class="entry-main">
           <span class="entry-fach">${fachDisplay}</span>${origFach}
@@ -730,34 +509,25 @@ function renderEntry(e) {
 
 function escHtml(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ── UI updates ─────────────────────────────────────────────────────────────
+// ── UI ─────────────────────────────────────────────────────────────────────
 function updateWeekBar() {
-  const targetDate = getTargetDate();
-  document.getElementById('week-label').textContent = buildWeekLabel(targetDate);
+  document.getElementById('week-label').textContent = buildWeekLabel(getTargetDate());
 }
-
 function showError(msg) {
   const banner = document.getElementById('error-banner');
   banner.textContent = msg;
   banner.classList.remove('hidden');
 }
-
-function hideError() {
-  document.getElementById('error-banner').classList.add('hidden');
-}
-
+function hideError() { document.getElementById('error-banner').classList.add('hidden'); }
 function setLastUpdated(date) {
-  const el = document.getElementById('last-updated');
-  el.textContent = 'Zuletzt aktualisiert: ' + date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+  document.getElementById('last-updated').textContent =
+    'Zuletzt aktualisiert: ' + date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
 }
 
-// ── Fetch-and-render cycle ─────────────────────────────────────────────────
 async function fetchAndRender() {
   const settings = loadSettings();
   if (!settingsAreComplete(settings)) {
@@ -781,11 +551,8 @@ async function fetchAndRender() {
     hideError();
   } catch (err) {
     showError('Fehler beim Laden: ' + err.message);
-    if (lastEntries !== null) {
-      render(lastEntries, targetDate, null);
-    } else {
-      document.getElementById('content').innerHTML = '<div class="loading">Keine Daten verfügbar.</div>';
-    }
+    if (lastEntries !== null) render(lastEntries, targetDate, null);
+    else document.getElementById('content').innerHTML = '<div class="loading">Keine Daten verfügbar.</div>';
   }
 }
 
@@ -794,7 +561,6 @@ function scheduleRefresh() {
   refreshTimer = setInterval(fetchAndRender, REFRESH_INTERVAL_MS);
 }
 
-// ── Settings UI ────────────────────────────────────────────────────────────
 function openSettings() {
   const s = loadSettings();
   document.getElementById('s-url').value = s.url || '';
@@ -803,14 +569,10 @@ function openSettings() {
   document.getElementById('s-klasse').value = s.klasse || '';
   document.getElementById('settings-overlay').classList.remove('hidden');
 }
-
-function closeSettings() {
-  document.getElementById('settings-overlay').classList.add('hidden');
-}
+function closeSettings() { document.getElementById('settings-overlay').classList.add('hidden'); }
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Reset button – clears all caches and reloads the page from scratch
   document.getElementById('reset-btn').addEventListener('click', async () => {
     lastEntries = null;
     weekOffset = 0;
@@ -825,16 +587,13 @@ document.addEventListener('DOMContentLoaded', () => {
     location.reload();
   });
 
-  // Settings button
   document.getElementById('settings-btn').addEventListener('click', openSettings);
   document.getElementById('settings-cancel-btn').addEventListener('click', closeSettings);
 
-  // Close overlay on backdrop click
   document.getElementById('settings-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('settings-overlay')) closeSettings();
   });
 
-  // Save settings
   document.getElementById('settings-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const s = {
@@ -851,29 +610,15 @@ document.addEventListener('DOMContentLoaded', () => {
     scheduleRefresh();
   });
 
-  // Week navigation
-  document.getElementById('prev-week-btn').addEventListener('click', () => {
-    weekOffset--;
-    fetchAndRender();
-  });
+  document.getElementById('prev-week-btn').addEventListener('click', () => { weekOffset--; fetchAndRender(); });
+  document.getElementById('next-week-btn').addEventListener('click', () => { weekOffset++; fetchAndRender(); });
 
-  document.getElementById('next-week-btn').addEventListener('click', () => {
-    weekOffset++;
-    fetchAndRender();
-  });
-
-  // Initial load
   updateWeekBar();
   fetchAndRender();
   scheduleRefresh();
 
-  // Refresh on visibility change (foreground only)
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      fetchAndRender();
-      scheduleRefresh();
-    } else {
-      clearInterval(refreshTimer);
-    }
+    if (!document.hidden) { fetchAndRender(); scheduleRefresh(); }
+    else clearInterval(refreshTimer);
   });
 });

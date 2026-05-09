@@ -116,8 +116,7 @@ function parseNavbarMeta(navDoc, monday, klasse) {
     if (opts.some(o => parseInt(o.value) === kw || parseInt(o.value) === kw - 1)) {
       meta.availableWeeks = opts.map(o => o.value).filter(v => /^\d+$/.test(v));
       const match = opts.find(o => parseInt(o.value) === kw);
-      meta.weekValue = match ? match.value
-        : meta.availableWeeks[meta.availableWeeks.length - 1] || '';
+      meta.weekValue = match ? match.value : '';
     }
     if ((sel.name || '').toLowerCase() === 'type' && opts.length > 0) {
       meta.typeCode = opts[0].value;
@@ -458,15 +457,19 @@ function parseSubstTable(table, state) {
 function render(entries, targetDate, debug, hasData, nachrichten) {
   const content = document.getElementById('content');
   const monday = getMondayOf(targetDate);
-  const debugHtml = debug
-    ? `<div class="debug-panel"><strong>Diagnose:</strong><pre>${escHtml(debug)}</pre></div>`
-    : '';
+
+  // Update the separate debug container (hidden by default, toggled by button)
+  const debugContainer = document.getElementById('debug-container');
+  const debugBtn = document.getElementById('debug-btn');
+  if (debug && debugContainer) {
+    debugContainer.innerHTML = `<strong>Diagnose:</strong><pre>${escHtml(debug)}</pre>`;
+    if (debugBtn) debugBtn.classList.remove('hidden');
+  }
 
   // Week not published: no real data tables found at all
   if (!hasData) {
     content.innerHTML =
-      `<div class="no-data-card">Vertretungsplan für diese Woche noch nicht veröffentlicht.</div>` +
-      debugHtml;
+      `<div class="no-data-card">Vertretungsplan für diese Woche noch nicht veröffentlicht.</div>`;
     return;
   }
 
@@ -504,7 +507,7 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
       </div>`;
   }).join('');
 
-  content.innerHTML = (html || '<div class="loading">Keine Einträge gefunden.</div>') + debugHtml;
+  content.innerHTML = html || '<div class="loading">Keine Einträge gefunden.</div>';
 }
 
 function renderEntry(e) {
@@ -614,6 +617,10 @@ function closeSettings() { document.getElementById('settings-overlay').classList
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('debug-btn').addEventListener('click', () => {
+    document.getElementById('debug-container').classList.toggle('hidden');
+  });
+
   document.getElementById('reset-btn').addEventListener('click', async () => {
     lastEntries = null;
     weekOffset = 0;

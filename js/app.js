@@ -426,6 +426,20 @@ function buildColMap(headers) {
   return map;
 }
 
+// Match a row against the target class using the klasse column when available.
+// Handles multi-class entries like "7B, 7D": splits on whitespace/commas and
+// checks for an exact token match so "6C" never matches "6A" or "K2".
+function rowMatchesKlasse(row, cells, colMap, klasseLower) {
+  if (colMap !== null && colMap.klasse !== undefined) {
+    const cell = cells[colMap.klasse];
+    if (cell) {
+      const raw = cellText(cell).toLowerCase();
+      return raw.split(/[\s,;\/]+/).some(part => part === klasseLower);
+    }
+  }
+  return row.textContent.toLowerCase().includes(klasseLower);
+}
+
 // Parse rows (array of <tr>) belonging to one day section.
 function parseDayRows(rows, klasse, datumNorm) {
   const klasseLower = klasse.toLowerCase().trim();
@@ -500,7 +514,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
       const cells = [...row.querySelectorAll('td')];
       if (!cells.length || cells.length === 1) continue;
       // Some Untis versions use <td> for header rows — detect by matching known column names
-      if (!colMap && !row.textContent.toLowerCase().includes(klasseLower)) {
+      if (!colMap && !rowMatchesKlasse(row, cells, null, klasseLower)) {
         const tryMap = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
         if ('klasse' in tryMap || 'stunde' in tryMap || 'fach' in tryMap) {
           colMap = tryMap;
@@ -508,7 +522,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
           continue;
         }
       }
-      if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
+      if (!rowMatchesKlasse(row, cells, colMap, klasseLower)) continue;
       if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
 
       const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
@@ -524,7 +538,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
       });
     }
 
-    debugLines.push(`Strategy A: ${entries.length} Einträge`);
+    debugLines.push(`Strategy A: ${entries.length} Einträge für Klasse "${klasse}"`);
     return { entries, debugLines };
   }
 
@@ -586,7 +600,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
 
       if (!cells.length) continue;
       // Some Untis versions use <td> for header rows — detect by matching known column names
-      if (!colMap && !row.textContent.toLowerCase().includes(klasseLower)) {
+      if (!colMap && !rowMatchesKlasse(row, cells, null, klasseLower)) {
         const tryMap = buildColMap(cells.map(c => c.textContent.trim().toLowerCase()));
         if ('klasse' in tryMap || 'stunde' in tryMap || 'fach' in tryMap) {
           colMap = tryMap;
@@ -594,7 +608,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
           continue;
         }
       }
-      if (!row.textContent.toLowerCase().includes(klasseLower)) continue;
+      if (!rowMatchesKlasse(row, cells, colMap, klasseLower)) continue;
       if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
 
       const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
@@ -610,7 +624,7 @@ function parseVertretungsplan(doc, klasse, targetDate) {
       });
     }
 
-    debugLines.push(`Fallback: ${entries.length} Einträge`);
+    debugLines.push(`Fallback: ${entries.length} Einträge für Klasse "${klasse}"`);
     return { entries, debugLines };
   }
 }

@@ -184,12 +184,40 @@ html, body {
   color: var(--color-text-muted);
 }
 
+/* ── Not-published banner ── */
+.no-data-card {
+  background: var(--color-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 32px 16px;
+  text-align: center;
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 /* ── No-change notice ── */
 .no-change {
   padding: 12px 14px;
   font-size: 0.85rem;
   color: #4caf50;
   font-style: italic;
+}
+
+/* ── Nachrichten zum Tag ── */
+.day-nachrichten {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #fffde7;
+}
+
+.nachricht-item {
+  font-size: 0.82rem;
+  color: #5d4037;
+  line-height: 1.4;
 }
 
 /* ── Entry row ── */

@@ -138,13 +138,15 @@ async function fetchPlan(settings, targetDate) {
   if (!base.html) throw new Error('Proxy nicht erreichbar oder Rate Limit. Bitte etwas warten.');
   debugLines.push(`Basis: ${base.html.length} Zeichen`);
 
-  let best = { entries: [], debugLines: [], source: '' };
+  let best = { entries: [], debugLines: [], source: '', hasData: false, nachrichten: {} };
   const tryParse = (html, source) => {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const result = parseVertretungsplan(doc, settings.klasse, targetDate);
-    debugLines.push(`${source}: ${result.entries.length} Einträge`);
-    if (result.entries.length > best.entries.length) {
-      best = { entries: result.entries, debugLines: result.debugLines, source };
+    debugLines.push(`${source}: ${result.entries.length} Einträge, veröffentlicht: ${result.hasData}`);
+    if (result.entries.length > best.entries.length ||
+        (!best.hasData && result.hasData)) {
+      best = { entries: result.entries, debugLines: result.debugLines, source,
+               hasData: result.hasData, nachrichten: result.nachrichten };
     }
   };
 
@@ -217,6 +219,8 @@ async function fetchPlan(settings, targetDate) {
   return {
     entries: best.entries,
     debug: debugLines.concat(best.debugLines).join('\n'),
+    hasData: best.hasData,
+    nachrichten: best.nachrichten,
   };
 }
 
@@ -327,17 +331,20 @@ function parseVertretungsplan(doc, klasse, targetDate) {
   const weekIsos = [0,1,2,3,4].map(i => isoDateLocal(addDays(monday, i)));
   const debugLines = [];
   const entries = [];
-  const state = { currentDate: '', monday, weekIsos, klasseLower, entries, debugLines };
+  // hasData: true once any day has a real <th>-based data table (week is published)
+  // nachrichten: { "YYYY-MM-DD": ["msg1", ...] }
+  const state = { currentDate: '', monday, weekIsos, klasseLower, entries, debugLines,
+                  hasData: false, nachrichten: {} };
 
   debugLines.push(`Klasse "${klasse}", KW${getISOWeekNumber(monday)}, ab ${isoDateLocal(monday)}`);
 
   const container = doc.getElementById('vertretung') || doc.body;
-  if (!container) { debugLines.push('Kein Container gefunden'); return { entries, debugLines }; }
+  if (!container) { debugLines.push('Kein Container gefunden'); return { entries, debugLines, hasData: false, nachrichten: {} }; }
 
   walkNodes(container, state);
 
-  debugLines.push(`Einträge gesamt: ${entries.length}`);
-  return { entries, debugLines };
+  debugLines.push(`Einträge gesamt: ${entries.length}, Woche veröffentlicht: ${state.hasData}`);
+  return { entries, debugLines, hasData: state.hasData, nachrichten: state.nachrichten };
 }
 
 // Recursively walk DOM nodes. Stops recursion at <b> (date check) and <table>.
@@ -364,19 +371,65 @@ function walkNodes(node, state) {
   for (const child of node.childNodes) walkNodes(child, state);
 }
 
-// Parse one <table>: find <th> header row, then extract matching data rows.
+// Returns true if a message from "Nachrichten zum Tag" is relevant for the class.
+// Relevant = starts with the class name ("6C: …"), starts with "Alle" (broadcast),
+// or has no recognisable class prefix (general announcement).
+function isMessageRelevant(text, klasseLower) {
+  const t = text.trim();
+  if (!t) return false;
+  if (/^alle\b/i.test(t)) return true;
+  // Prefix pattern: "ClassName:" or "ClassA, ClassB:" before the actual message
+  const m = t.match(/^([\wÄÖÜäöü]+(?:[\s,]+[\wÄÖÜäöü]+)*)\s*:/);
+  if (m) {
+    const tokens = m[1].toLowerCase().split(/[\s,]+/).filter(Boolean);
+    return tokens.some(tok => tok === klasseLower);
+  }
+  return true; // no class prefix → general, always show
+}
+
+// Parse "Nachrichten zum Tag" table: extract lines relevant to the class.
+function parseNachrichtenTable(table, state) {
+  if (!state.currentDate) return;
+  const td = table.querySelector('td');
+  if (!td) return;
+  if (!state.nachrichten[state.currentDate]) state.nachrichten[state.currentDate] = [];
+
+  // Each message is separated by <br> inside the cell
+  const parts = td.innerHTML.split(/<br\s*\/?>/gi);
+  for (const part of parts) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = part;
+    const msg = tmp.textContent.replace(/\s+/g, ' ').trim();
+    if (msg && isMessageRelevant(msg, state.klasseLower)) {
+      state.nachrichten[state.currentDate].push(msg);
+    }
+  }
+  if (state.nachrichten[state.currentDate].length) {
+    state.debugLines.push(`  Nachrichten (${state.currentDate}): ${state.nachrichten[state.currentDate].length} relevant`);
+  }
+}
+
+// Parse one <table>: detect Nachrichten vs. data table, then extract matching rows.
 function parseSubstTable(table, state) {
   const { monday, klasseLower, currentDate, entries, debugLines } = state;
-  let colMap = null;
 
+  // Nachrichten table: first <th> contains "nachrichten"
+  const firstTh = table.querySelector('th');
+  if (firstTh && /nachrichten/i.test(firstTh.textContent)) {
+    parseNachrichtenTable(table, state);
+    return;
+  }
+
+  let colMap = null;
   for (const row of table.querySelectorAll('tr')) {
     const ths = [...row.querySelectorAll('th')];
     if (ths.length && !colMap) {
       colMap = buildColMap(ths.map(c => c.textContent.trim().toLowerCase()));
       if (Object.keys(colMap).length >= 3) {
         debugLines.push(`  Spalten: ${JSON.stringify(colMap)}`);
+        state.hasData = true; // week is published (has a real data table)
       } else {
-        colMap = null; // not a real data header (e.g. "Nachrichten zum Tag")
+        colMap = null;
       }
       continue;
     }
@@ -402,13 +455,23 @@ function parseSubstTable(table, state) {
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────
-function render(entries, targetDate, debug) {
+function render(entries, targetDate, debug, hasData, nachrichten) {
   const content = document.getElementById('content');
   const monday = getMondayOf(targetDate);
+  const debugHtml = debug
+    ? `<div class="debug-panel"><strong>Diagnose:</strong><pre>${escHtml(debug)}</pre></div>`
+    : '';
+
+  // Week not published: no real data tables found at all
+  if (!hasData) {
+    content.innerHTML =
+      `<div class="no-data-card">Vertretungsplan für diese Woche noch nicht veröffentlicht.</div>` +
+      debugHtml;
+    return;
+  }
 
   const byDate = {};
   for (let i = 0; i < 5; i++) byDate[isoDateLocal(addDays(monday, i))] = [];
-
   for (const e of entries) {
     if (e.datumNorm && byDate.hasOwnProperty(e.datumNorm)) {
       byDate[e.datumNorm].push(e);
@@ -421,22 +484,26 @@ function render(entries, targetDate, debug) {
     const date = new Date(iso + 'T00:00:00');
     const dayName = WEEKDAY_LABELS[date.getDay() - 1] || DAY_NAMES[date.getDay()];
     const dateStr = formatDateShort(date) + date.getFullYear();
+
+    const msgs = (nachrichten && nachrichten[iso]) || [];
+    const nachrichtenHtml = msgs.length
+      ? `<div class="day-nachrichten">${msgs.map(m => `<div class="nachricht-item">${escHtml(m)}</div>`).join('')}</div>`
+      : '';
+
     const body = dayEntries.length
       ? dayEntries.map(renderEntry).join('')
       : `<div class="no-change">Kein Ausfall</div>`;
+
     return `
       <div class="day-card">
         <div class="day-header">
           <span class="day-name">${dayName}</span>
           <span class="day-date">${dateStr}</span>
         </div>
-        ${body}
+        ${nachrichtenHtml}${body}
       </div>`;
   }).join('');
 
-  const debugHtml = debug
-    ? `<div class="debug-panel"><strong>Diagnose:</strong><pre>${escHtml(debug)}</pre></div>`
-    : '';
   content.innerHTML = (html || '<div class="loading">Keine Einträge gefunden.</div>') + debugHtml;
 }
 
@@ -514,15 +581,19 @@ async function fetchAndRender() {
   updateWeekBar();
 
   try {
-    const { entries, debug } = await fetchPlan(settings, targetDate);
-    lastEntries = entries;
-    render(entries, targetDate, debug);
+    const { entries, debug, hasData, nachrichten } = await fetchPlan(settings, targetDate);
+    lastEntries = { entries, hasData, nachrichten };
+    render(entries, targetDate, debug, hasData, nachrichten);
     setLastUpdated(new Date());
     hideError();
   } catch (err) {
     showError('Fehler beim Laden: ' + err.message);
-    if (lastEntries !== null) render(lastEntries, targetDate, null);
-    else document.getElementById('content').innerHTML = '<div class="loading">Keine Daten verfügbar.</div>';
+    if (lastEntries !== null) {
+      const { entries, hasData, nachrichten } = lastEntries;
+      render(entries, targetDate, null, hasData, nachrichten);
+    } else {
+      document.getElementById('content').innerHTML = '<div class="loading">Keine Daten verfügbar.</div>';
+    }
   }
 }
 

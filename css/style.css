@@ -66,6 +66,8 @@ body {
 
 /* Glass icon buttons */
 .icon-btn {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -87,7 +89,7 @@ body {
 
 .icon-btn:active {
   background: rgba(255, 255, 255, 0.3);
-  transform: scale(0.93);
+  transform: scale(0.9);
 }
 
 /* ── Week bar ──────────────────────────────────────────────── */
@@ -105,6 +107,8 @@ body {
 
 /* Glass pill nav buttons */
 .nav-btn {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -126,7 +130,7 @@ body {
 
 .nav-btn:active {
   background: rgba(255, 255, 255, 0.28);
-  transform: scale(0.95);
+  transform: scale(0.93);
 }
 
 #week-label {
@@ -474,27 +478,66 @@ body {
   background: rgba(100, 116, 139, 0.18);
 }
 
+/* ── Ripple effect ────────────────────────────────────────── */
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+  transform: scale(0);
+  animation: ripple-out 0.5s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes ripple-out {
+  to { transform: scale(2.8); opacity: 0; }
+}
+
 .hidden {
   display: none !important;
 }
 
-/* ── Debug panel ──────────────────────────────────────────── */
+/* ── Debug section inside settings ───────────────────────── */
+.settings-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 22px 0 16px;
+}
+
+.debug-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(100, 116, 139, 0.08);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--clr-muted);
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.18s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.debug-toggle-btn:active {
+  background: rgba(100, 116, 139, 0.16);
+}
+
 #debug-container {
-  background: rgba(15, 23, 42, 0.72);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 14px 16px;
-  font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.7);
-  margin: 0;
+  margin-top: 10px;
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.71rem;
+  color: rgba(255, 255, 255, 0.65);
 }
 
 #debug-container pre {
   white-space: pre-wrap;
   word-break: break-all;
-  margin-top: 6px;
   font-size: 0.67rem;
   line-height: 1.55;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.5);
+  font-family: 'SF Mono', 'Fira Code', monospace;
 }

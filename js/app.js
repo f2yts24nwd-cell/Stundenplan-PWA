@@ -188,27 +188,26 @@ async function fetchPlan(settings, targetDate) {
       }
     }
 
-    // Try common Untis content paths constructed from navbar metadata
+    // Try common Untis content paths constructed from navbar metadata.
+    // Only the target week is tried — never fall back to other weeks, as
+    // that would show stale data when the next week isn't published yet.
     if (best.entries.length === 0 && nav && nav.weekValue) {
       const tc = nav.typeCode || 'w';
       const padd = n => String(n).padStart(5, '0');
       const elIndices = [0, ...(nav.classIdx > 0 ? [nav.classIdx] : [])];
-      const weeks = [nav.weekValue, ...[...nav.availableWeeks].reverse().filter(w => w !== nav.weekValue)];
 
-      outer: for (const wk of weeks) {
-        for (const el of elIndices) {
-          const path = `${tc}/${wk}/${tc}${padd(el)}.htm`;
-          try {
-            const fileUrl = new URL(path, settings.url).href;
-            const r = await fetch(base.proxy + encodeURIComponent(fileUrl), { headers: hdrs });
-            if (!r.ok) continue;
-            const html = await r.text();
-            if (html.length < 200) continue;
-            tryParse(html, path);
-            if (best.entries.length > 0) break outer;
-          } catch (e) {
-            debugLines.push(`${path}: ${e.message}`);
-          }
+      for (const el of elIndices) {
+        const path = `${tc}/${nav.weekValue}/${tc}${padd(el)}.htm`;
+        try {
+          const fileUrl = new URL(path, settings.url).href;
+          const r = await fetch(base.proxy + encodeURIComponent(fileUrl), { headers: hdrs });
+          if (!r.ok) continue;
+          const html = await r.text();
+          if (html.length < 200) continue;
+          tryParse(html, path);
+          if (best.entries.length > 0) break;
+        } catch (e) {
+          debugLines.push(`${path}: ${e.message}`);
         }
       }
     }

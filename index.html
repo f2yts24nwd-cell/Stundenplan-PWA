@@ -23,6 +23,7 @@
   <header id="header">
     <span class="app-title">&#127981; Vertretungsplan</span>
     <div class="header-actions">
+      <button id="debug-btn" class="icon-btn hidden" aria-label="Diagnose anzeigen" title="Diagnose">&#128270;</button>
       <button id="reset-btn" class="icon-btn" aria-label="Cache leeren und neu laden" title="Cache leeren">&#128465;</button>
       <button id="settings-btn" class="icon-btn" aria-label="Einstellungen">&#9881;&#65039;</button>
     </div>
@@ -45,6 +46,9 @@
   <main id="content">
     <div class="loading">Lade Vertretungsplan&hellip;</div>
   </main>
+
+  <!-- Debug panel (hidden by default, toggle via 🔍 button) -->
+  <div id="debug-container" class="debug-panel hidden"></div>
 
   <!-- Settings overlay -->
   <div id="settings-overlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Einstellungen">

@@ -74,12 +74,24 @@ function authHeaders(settings) {
   return h;
 }
 
+// Detect charset from Content-Type header; fall back to sniffing the HTML meta tag.
+function decodeWithCharset(buf, contentType) {
+  let charset = ((contentType || '').match(/charset=([^\s;]+)/i) || [])[1] || '';
+  if (!charset) {
+    const sniff = new TextDecoder('utf-8', { fatal: false })
+      .decode(new Uint8Array(buf, 0, Math.min(1024, buf.byteLength)));
+    charset = (sniff.match(/<meta[^>]+charset=["']?\s*([a-z0-9_\-]+)/i) || [])[1] || 'utf-8';
+  }
+  return new TextDecoder(charset, { fatal: false }).decode(buf);
+}
+
 async function fetchThroughProxy(url, hdrs, debugLines) {
   for (const proxy of PROXIES) {
     try {
       const r = await fetch(proxy + encodeURIComponent(url), { headers: hdrs });
       if (r.status === 429) { debugLines && debugLines.push(`  ${proxy.split('?')[0]}: 429`); continue; }
-      const text = await r.text();
+      const buf = await r.arrayBuffer();
+      const text = decodeWithCharset(buf, r.headers.get('content-type') || '');
       if (r.ok && text.length > 100) return { html: text, proxy };
       debugLines && debugLines.push(`  ${proxy.split('?')[0]}: HTTP ${r.status}, ${text.length} ch`);
     } catch (e) {
@@ -87,6 +99,16 @@ async function fetchThroughProxy(url, hdrs, debugLines) {
     }
   }
   return { html: '', proxy: '' };
+}
+
+// Single fetch through an already-known proxy with charset-aware decoding.
+async function proxyGet(proxyBase, url, hdrs) {
+  try {
+    const r = await fetch(proxyBase + encodeURIComponent(url), { headers: hdrs });
+    if (!r.ok) return '';
+    const buf = await r.arrayBuffer();
+    return decodeWithCharset(buf, r.headers.get('content-type') || '');
+  } catch { return ''; }
 }
 
 // Extract <frame src="..."> URLs from raw HTML (DOMParser drops framesets)
@@ -163,9 +185,9 @@ async function fetchPlan(settings, targetDate) {
     if (navbarSrc) {
       try {
         const navUrl = new URL(navbarSrc, settings.url).href;
-        const r = await fetch(base.proxy + encodeURIComponent(navUrl), { headers: hdrs });
-        if (r.ok) {
-          const navDoc = new DOMParser().parseFromString(await r.text(), 'text/html');
+        const navHtml = await proxyGet(base.proxy, navUrl, hdrs);
+        if (navHtml) {
+          const navDoc = new DOMParser().parseFromString(navHtml, 'text/html');
           nav = parseNavbarMeta(navDoc, monday, settings.klasse);
           debugLines.push(`Navbar: KW=${nav.weekValue}, Type="${nav.typeCode}", ClassIdx=${nav.classIdx}`);
         }
@@ -174,24 +196,24 @@ async function fetchPlan(settings, targetDate) {
       }
     }
 
-    // Try non-navbar frames directly (some Untis layouts have a 'main' frame with current data)
-    for (const frame of frames) {
-      if (/nav/i.test(frame)) continue;
-      try {
-        const fUrl = new URL(frame, settings.url).href;
-        const r = await fetch(base.proxy + encodeURIComponent(fUrl), { headers: hdrs });
-        if (!r.ok) continue;
-        const html = await r.text();
-        if (html.length > 200) tryParse(html, `Frame ${frame.split('/').pop()}`);
-        if (best.entries.length > 0) break;
-      } catch (e) {
-        debugLines.push(`Frame ${frame}: ${e.message}`);
+    // Non-navbar frames always show the currently published week regardless of the target week.
+    // Skip them when the navbar confirms the target KW is not yet published (weekValue empty).
+    const weekKnownUnpublished = nav && !nav.weekValue;
+    if (!weekKnownUnpublished) {
+      for (const frame of frames) {
+        if (/nav/i.test(frame)) continue;
+        try {
+          const fUrl = new URL(frame, settings.url).href;
+          const html = await proxyGet(base.proxy, fUrl, hdrs);
+          if (html.length > 200) tryParse(html, `Frame ${frame.split('/').pop()}`);
+          if (best.entries.length > 0) break;
+        } catch (e) {
+          debugLines.push(`Frame ${frame}: ${e.message}`);
+        }
       }
     }
 
-    // Try common Untis content paths constructed from navbar metadata.
-    // Only the target week is tried — never fall back to other weeks, as
-    // that would show stale data when the next week isn't published yet.
+    // Try the exact target-week path constructed from navbar metadata.
     if (best.entries.length === 0 && nav && nav.weekValue) {
       const tc = nav.typeCode || 'w';
       const padd = n => String(n).padStart(5, '0');
@@ -201,9 +223,7 @@ async function fetchPlan(settings, targetDate) {
         const path = `${tc}/${nav.weekValue}/${tc}${padd(el)}.htm`;
         try {
           const fileUrl = new URL(path, settings.url).href;
-          const r = await fetch(base.proxy + encodeURIComponent(fileUrl), { headers: hdrs });
-          if (!r.ok) continue;
-          const html = await r.text();
+          const html = await proxyGet(base.proxy, fileUrl, hdrs);
           if (html.length < 200) continue;
           tryParse(html, path);
           if (best.entries.length > 0) break;

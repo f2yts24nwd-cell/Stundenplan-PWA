@@ -315,120 +315,91 @@ function detectTypFromColumns(fach, stattFach, raum, stattRaum, info) {
   return 'other';
 }
 
-// ── Unified single-pass parser ─────────────────────────────────────────────
-// Walks ALL <tr> elements in document order. Three kinds of rows:
-//   1. Day-separator: row whose visible text contains exactly one weekday
-//      date for this week (after stripping <a> anchors that hold other days)
-//      → resets currentDate and colMap
-//   2. Header row: cells contain enough column-name keywords (≥3)
-//      → builds colMap
-//   3. Data row: ≥3 cells, klasse column matches → entry
+// ── Parser ─────────────────────────────────────────────────────────────────
+// The Untis file (w/KW/w00000.htm) uses <b>D.M. Weekday</b> bold elements
+// in the document body as day separators — they are NOT inside any <tr>.
+// Each day is followed by one or more <table> elements (Nachrichten + data).
+// We walk the DOM tree: <b> tags set currentDate, <table> tags are parsed for
+// entries, and recursion stops at both so that bold text inside data cells
+// (e.g. <b>6C</b>) can never accidentally reset the day.
 function parseVertretungsplan(doc, klasse, targetDate) {
   const monday = getMondayOf(targetDate);
   const klasseLower = klasse.toLowerCase().trim();
+  const weekIsos = [0,1,2,3,4].map(i => isoDateLocal(addDays(monday, i)));
   const debugLines = [];
   const entries = [];
+  const state = { currentDate: '', monday, weekIsos, klasseLower, entries, debugLines };
 
-  debugLines.push(`Suche Klasse "${klasse}", KW${getISOWeekNumber(monday)} ab ${isoDateLocal(monday)}`);
+  debugLines.push(`Klasse "${klasse}", KW${getISOWeekNumber(monday)}, ab ${isoDateLocal(monday)}`);
 
-  const allRows = [...doc.querySelectorAll('tr')];
-  if (!allRows.length) {
-    debugLines.push('Keine <tr>-Elemente gefunden');
-    return { entries, debugLines };
+  const container = doc.getElementById('vertretung') || doc.body;
+  if (!container) { debugLines.push('Kein Container gefunden'); return { entries, debugLines }; }
+
+  walkNodes(container, state);
+
+  debugLines.push(`Einträge gesamt: ${entries.length}`);
+  return { entries, debugLines };
+}
+
+// Recursively walk DOM nodes. Stops recursion at <b> (date check) and <table>.
+function walkNodes(node, state) {
+  if (node.nodeType !== Node.ELEMENT_NODE) return;
+  const tag = node.tagName;
+
+  if (tag === 'B') {
+    // The current day in each Untis section is <b>D.M. Weekday</b>
+    const text = node.textContent.trim();
+    const d = parseTitleDate(text, state.monday);
+    if (d && state.weekIsos.includes(d)) {
+      state.currentDate = d;
+      state.debugLines.push(`▶ Tag ${d}: "${text}"`);
+    }
+    return; // do NOT recurse — prevents <b>Klasse(n)</b> inside tables from matching
   }
-  debugLines.push(`Zeilen: ${allRows.length}`);
 
-  const weekIsos = [0,1,2,3,4].map(i => isoDateLocal(addDays(monday, i)));
+  if (tag === 'TABLE') {
+    parseSubstTable(node, state);
+    return; // do NOT recurse — handled by parseSubstTable
+  }
 
-  let currentDate = '';
+  for (const child of node.childNodes) walkNodes(child, state);
+}
+
+// Parse one <table>: find <th> header row, then extract matching data rows.
+function parseSubstTable(table, state) {
+  const { monday, klasseLower, currentDate, entries, debugLines } = state;
   let colMap = null;
-  let navBarIndex = -1;
-  const stats = { sep: 0, header: 0, data: 0, skipKlasse: 0, skipNoCells: 0 };
 
-  for (const row of allRows) {
+  for (const row of table.querySelectorAll('tr')) {
+    const ths = [...row.querySelectorAll('th')];
+    if (ths.length && !colMap) {
+      colMap = buildColMap(ths.map(c => c.textContent.trim().toLowerCase()));
+      if (Object.keys(colMap).length >= 3) {
+        debugLines.push(`  Spalten: ${JSON.stringify(colMap)}`);
+      } else {
+        colMap = null; // not a real data header (e.g. "Nachrichten zum Tag")
+      }
+      continue;
+    }
+
     const cells = [...row.querySelectorAll('td')];
-    const headers = [...row.querySelectorAll('th')];
-    const tdAndTh = [...cells, ...headers];
+    if (cells.length < 3) continue;
+    if (!colMap) colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
+    if (!rowMatchesKlasse(cells, colMap, klasseLower)) continue;
 
-    // ── 1. Day separator detection ────────────────────────────────────────
-    // a) Single-cell row OR row with td.mon_title cell
-    const titleCell = row.querySelector('td.mon_title, th.mon_title');
-    const isSingleCell = cells.length === 1 && headers.length === 0;
-    if (isSingleCell || titleCell) {
-      const cell = titleCell || cells[0] || row;
-      const fullText = cell.textContent.replace(/\s+/g, ' ').trim();
-
-      // Approach A: Use only non-anchor text (current day is plain text)
-      const activeText = extractActiveText(cell);
-      let dateCandidate = parseTitleDate(activeText || fullText, monday);
-
-      // Approach B: If cell contains all 5 weekday dates, use section index
-      const allDates = [...fullText.matchAll(/(\d{1,2})\.(\d{1,2})\./g)];
-      if (allDates.length >= 5) {
-        const weekDates = [...new Set(
-          allDates
-            .map(dm => `${monday.getFullYear()}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`)
-            .filter(iso => weekIsos.includes(iso))
-        )];
-        if (weekDates.length === 5) {
-          navBarIndex = Math.min(navBarIndex + 1, 4);
-          dateCandidate = weekDates[navBarIndex];
-        }
-      }
-
-      if (dateCandidate) {
-        currentDate = dateCandidate;
-        colMap = null;
-        stats.sep++;
-        debugLines.push(`▶ Tag ${currentDate}: "${fullText.slice(0, 60)}"`);
-      }
-      continue;
-    }
-
-    // ── 2. Header row detection ───────────────────────────────────────────
-    if (!colMap && tdAndTh.length >= 3 && looksLikeHeader(tdAndTh)) {
-      colMap = buildColMap(tdAndTh.map(c => c.textContent.trim().toLowerCase()));
-      stats.header++;
-      debugLines.push(`▶ Spalten: ${JSON.stringify(colMap)}`);
-      continue;
-    }
-
-    // ── 3. Data row ───────────────────────────────────────────────────────
-    if (cells.length < 3) { stats.skipNoCells++; continue; }
-    if (!colMap) {
-      colMap = { klasse:0, stunde:1, fach:2, stattfach:3, raum:4, stattraum:5, vertreter:6, info:7 };
-    }
-
-    if (!rowMatchesKlasse(cells, colMap, klasseLower)) {
-      stats.skipKlasse++;
-      continue;
-    }
-
-    const get = (key) => colMap[key] !== undefined ? cellText(cells[colMap[key]]) : '';
-    const fach = get('fach');
-    const stattFach = get('stattfach');
-    const raum = get('raum');
-    const stattRaum = get('stattraum');
+    const get = k => colMap[k] !== undefined ? cellText(cells[colMap[k]]) : '';
+    const fach = get('fach'), stattFach = get('stattfach');
+    const raum = get('raum'), stattRaum = get('stattraum');
     const info = get('info');
     const rawDatum = get('datum');
     const datumNorm = (rawDatum ? parseTitleDate(rawDatum, monday) : '') || currentDate;
 
     entries.push({
-      datumNorm, datum: rawDatum,
-      stunde: get('stunde'), klasse: get('klasse'),
-      fach, stattFach, raum, stattRaum,
-      vertreter: get('vertreter'), info,
+      datumNorm, datum: rawDatum, stunde: get('stunde'), klasse: get('klasse'),
+      fach, stattFach, raum, stattRaum, vertreter: get('vertreter'), info,
       typ: detectTypFromColumns(fach, stattFach, raum, stattRaum, info),
     });
-    stats.data++;
   }
-
-  debugLines.push(
-    `Statistik: ${stats.sep} Trenner, ${stats.header} Header, ` +
-    `${stats.data} Treffer, ${stats.skipKlasse} andere Klasse, ` +
-    `${stats.skipNoCells} zu klein`
-  );
-  return { entries, debugLines };
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────

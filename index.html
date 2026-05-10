@@ -3,23 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-
-  <!-- Apply dark mode before first paint to avoid flash -->
   <script>try{if(JSON.parse(localStorage.getItem('vplan_settings')||'{}').dark)document.documentElement.setAttribute('data-dark','')}catch{}</script>
-
-  <!-- PWA -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1d4ed8">
-
-  <!-- iOS PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="LMG Vplan">
   <link rel="apple-touch-icon" href="icon-192.png">
-
-  <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="icon.svg">
-
   <title>LMG Vertretungsplan</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -33,16 +24,10 @@
     </div>
     <div class="header-actions">
       <button id="reset-btn" class="icon-btn" aria-label="Cache leeren und neu laden" title="Neu laden">
-        <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="23 4 23 10 17 10"/>
-          <path d="M20.49 15a9 9 0 1 1-.49-4.49"/>
-        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.49"/></svg>
       </button>
       <button id="settings-btn" class="icon-btn" aria-label="Einstellungen" title="Einstellungen">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
     </div>
   </header>
@@ -50,22 +35,24 @@
   <!-- Week navigation bar -->
   <div id="week-bar">
     <button id="prev-week-btn" class="nav-btn" aria-label="Vorwoche">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polyline points="15 18 9 12 15 6"/>
-      </svg>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
     </button>
     <span id="week-label">KW ??</span>
     <button id="next-week-btn" class="nav-btn" aria-label="Nächste Woche">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polyline points="9 18 15 12 9 6"/>
-      </svg>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
+  </div>
+
+  <!-- View toggle (hidden until a Stundenplan is stored) -->
+  <div id="view-toggle" class="view-toggle hidden">
+    <button class="view-btn active" data-view="tage">Tage</button>
+    <button class="view-btn" data-view="woche">Woche</button>
   </div>
 
   <!-- Last updated -->
   <div id="last-updated"></div>
 
-  <!-- Error banner (hidden by default) -->
+  <!-- Error banner -->
   <div id="error-banner" class="error-banner hidden"></div>
 
   <!-- Main content -->
@@ -73,7 +60,7 @@
     <div class="loading">Lade Vertretungsplan&hellip;</div>
   </main>
 
-  <!-- Settings overlay -->
+  <!-- ── Settings overlay ─────────────────────────────────── -->
   <div id="settings-overlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Einstellungen">
     <div class="overlay-card">
       <h2>Einstellungen</h2>
@@ -88,9 +75,8 @@
         <input type="password" id="s-pass" name="pass" autocomplete="current-password">
 
         <label for="s-klasse">Klasse</label>
-        <input type="text" id="s-klasse" name="klasse" placeholder="z. B. 10a" required>
+        <input type="text" id="s-klasse" name="klasse" placeholder="z. B. 6C" required>
 
-        <!-- Dark mode toggle -->
         <div class="settings-toggle-row">
           <label for="s-darkmode" class="toggle-label">Dark Mode</label>
           <label class="toggle-switch">
@@ -105,16 +91,56 @@
         </div>
       </form>
 
-      <!-- Debug section — shown only after data loads -->
+      <!-- Stundenplan link -->
+      <div class="settings-divider"></div>
+      <button type="button" id="open-sp-btn" class="sp-settings-link">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Stundenplan bearbeiten
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left:auto"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+
+      <!-- Debug section -->
       <div id="debug-section" class="hidden">
         <div class="settings-divider"></div>
         <button type="button" id="debug-toggle-btn" class="debug-toggle-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-          </svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           <span id="debug-toggle-label">Diagnose anzeigen</span>
         </button>
         <div id="debug-container" class="hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Stundenplan editor overlay ──────────────────────────── -->
+  <div id="sp-overlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Stundenplan bearbeiten">
+    <div class="overlay-card sp-overlay-card">
+      <div class="sp-editor-header">
+        <h2>Stundenplan</h2>
+        <button id="sp-close-btn" class="icon-btn sp-close-icon" aria-label="Schließen">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Screenshot upload for reference -->
+      <label for="sp-img-input" class="sp-upload-label" id="sp-upload-label">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Screenshot als Referenz hochladen
+      </label>
+      <input type="file" id="sp-img-input" accept="image/*" class="hidden">
+      <img id="sp-img-preview" class="sp-img-preview hidden" alt="Stundenplan Vorschau">
+
+      <p class="sp-hint">Format je Zelle: <code>Fach/Lehrer/Raum</code> &nbsp;z.&nbsp;B.&nbsp;<code>D/CEYL/304</code></p>
+
+      <!-- Grid editor -->
+      <div class="sp-grid-scroll">
+        <table class="sp-editor-table" id="sp-editor-table">
+          <!-- Filled by JS -->
+        </table>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" id="sp-cancel-btn" class="btn-secondary">Abbrechen</button>
+        <button type="button" id="sp-save-btn" class="btn-primary">Speichern</button>
       </div>
     </div>
   </div>

@@ -2,8 +2,10 @@
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const SETTINGS_KEY = 'vplan_settings';
+const STUNDENPLAN_KEY = 'vplan_stundenplan';
 const PROXIES = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const SP_PERIODS = 10;
 const DAY_NAMES = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
 const WEEKDAY_LONG  = ['montag','dienstag','mittwoch','donnerstag','freitag'];
@@ -13,6 +15,7 @@ const WEEKDAY_SHORT = ['mo','di','mi','do','fr'];
 let weekOffset = 0;
 let lastEntries = null;
 let refreshTimer = null;
+let currentView = 'tage';
 
 // ── Settings ───────────────────────────────────────────────────────────────
 function loadSettings() {
@@ -478,6 +481,176 @@ function parseSubstTable(table, state) {
   }
 }
 
+// ── Stundenplan (manual schedule) ─────────────────────────────────────────
+function loadStundenplan() {
+  try { return JSON.parse(localStorage.getItem(STUNDENPLAN_KEY) || 'null'); }
+  catch { return null; }
+}
+
+function saveStundenplan(data) {
+  localStorage.setItem(STUNDENPLAN_KEY, JSON.stringify(data));
+}
+
+function updateViewToggleVisibility() {
+  const sp = loadStundenplan();
+  const vt = document.getElementById('view-toggle');
+  if (sp) vt.classList.remove('hidden');
+  else vt.classList.add('hidden');
+}
+
+function buildEditorTable() {
+  const table = document.getElementById('sp-editor-table');
+  const sp = loadStundenplan();
+  const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
+  let html = '<thead><tr><th></th>' + days.map(d => `<th>${d}</th>`).join('') + '</tr></thead><tbody>';
+  for (let p = 0; p < SP_PERIODS; p++) {
+    html += `<tr><td class="sp-period-label">${p + 1}</td>`;
+    for (let d = 0; d < 5; d++) {
+      const val = sp && sp.cells && sp.cells[p] ? (sp.cells[p][d] || '') : '';
+      html += `<td><input type="text" value="${escHtml(val)}" data-p="${p}" data-d="${d}" placeholder="–" autocomplete="off" spellcheck="false"></td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  table.innerHTML = html;
+}
+
+function collectStundenplanData() {
+  const cells = Array.from({ length: SP_PERIODS }, () => Array(5).fill(''));
+  document.querySelectorAll('#sp-editor-table input[type="text"]').forEach(inp => {
+    cells[+inp.dataset.p][+inp.dataset.d] = inp.value.trim();
+  });
+  return { cells };
+}
+
+function openStundenplanEditor() {
+  buildEditorTable();
+  const prev = document.getElementById('sp-img-preview');
+  const lbl = document.getElementById('sp-upload-label');
+  prev.classList.add('hidden');
+  prev.src = '';
+  lbl.classList.remove('hidden');
+  document.getElementById('sp-overlay').classList.remove('hidden');
+}
+
+function closeStundenplanEditor() {
+  document.getElementById('sp-overlay').classList.add('hidden');
+}
+
+// ── Timetable week view ────────────────────────────────────────────────────
+function expandStundenRange(stunde) {
+  if (!stunde) return [];
+  const m = stunde.match(/(\d+)\s*[-–]\s*(\d+)/);
+  if (m) {
+    const from = parseInt(m[1]), to = parseInt(m[2]);
+    return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  }
+  const n = parseInt(stunde);
+  return isNaN(n) ? [] : [n];
+}
+
+function renderTimetableCell(subst, regularStr) {
+  const typClass = `tt-${subst.typ}`;
+  const origFach = (regularStr || '').split('/')[0] || '';
+  let inner = '';
+  if (subst.typ === 'ausfall') {
+    inner = `<span class="tt-strike">${escHtml(origFach || subst.stattFach || '')}</span>`;
+  } else {
+    const fach = subst.fach && subst.fach !== '---' ? subst.fach : origFach;
+    inner = escHtml(fach);
+    const raum = subst.stattRaum && subst.stattRaum !== '---' ? subst.stattRaum
+                : subst.raum && subst.raum !== '---' ? subst.raum : '';
+    if (raum) inner += `<span class="tt-room">${escHtml(raum)}</span>`;
+  }
+  return `<td class="tt-cell ${typClass}" title="${escHtml(subst.info || '')}">${inner}</td>`;
+}
+
+function renderTimetableView(entries, targetDate, hasData, nachrichten) {
+  const content = document.getElementById('content');
+  const sp = loadStundenplan();
+
+  if (!hasData) {
+    content.innerHTML = `<div class="no-data-card">Vertretungsplan für diese Woche noch nicht veröffentlicht.</div>`;
+    return;
+  }
+
+  const monday = getMondayOf(targetDate);
+  const weekIsos = [0, 1, 2, 3, 4].map(i => isoDateLocal(addDays(monday, i)));
+
+  // Build substitution lookup: key = "iso_periodNum"
+  const substMap = {};
+  for (const e of entries) {
+    for (const p of expandStundenRange(e.stunde)) {
+      const key = `${e.datumNorm}_${p}`;
+      if (!substMap[key]) substMap[key] = e;
+    }
+  }
+
+  // Column headers
+  const thHtml = `<th></th>` + weekIsos.map((iso, i) => {
+    const date = new Date(iso + 'T00:00:00');
+    return `<th><div>${WEEKDAY_LABELS[i]}</div><div class="tt-date">${formatDateShort(date)}</div></th>`;
+  }).join('');
+
+  // Build rows — skip fully empty periods
+  let rowsHtml = '';
+  for (let p = 0; p < SP_PERIODS; p++) {
+    let periodHasContent = false;
+    for (let d = 0; d < 5; d++) {
+      const regular = sp && sp.cells && sp.cells[p] ? sp.cells[p][d] || '' : '';
+      if (regular || substMap[`${weekIsos[d]}_${p + 1}`]) { periodHasContent = true; break; }
+    }
+    if (!periodHasContent) continue;
+
+    rowsHtml += `<tr><td class="tt-period">${p + 1}</td>`;
+    for (let d = 0; d < 5; d++) {
+      const iso = weekIsos[d];
+      const key = `${iso}_${p + 1}`;
+      const subst = substMap[key];
+      const regular = sp && sp.cells && sp.cells[p] ? sp.cells[p][d] || '' : '';
+
+      if (subst) {
+        rowsHtml += renderTimetableCell(subst, regular);
+      } else if (regular) {
+        const parts = regular.split('/');
+        const fach = parts[0] ? escHtml(parts[0]) : '';
+        const raum = parts[2] ? `<span class="tt-room">${escHtml(parts[2])}</span>` : '';
+        rowsHtml += `<td class="tt-cell">${fach}${raum}</td>`;
+      } else {
+        rowsHtml += `<td class="tt-cell tt-empty"></td>`;
+      }
+    }
+    rowsHtml += '</tr>';
+  }
+
+  // Nachrichten below timetable
+  const allMsgs = weekIsos.flatMap((iso, i) => {
+    const msgs = (nachrichten && nachrichten[iso]) || [];
+    return msgs.map(m => `<div class="nachricht-item"><strong>${WEEKDAY_LABELS[i]}:</strong> ${escHtml(m)}</div>`);
+  });
+  const nachrichtenHtml = allMsgs.length
+    ? `<div class="day-nachrichten" style="padding:10px 16px">${allMsgs.join('')}</div>` : '';
+
+  content.innerHTML = `
+    <div class="timetable-card">
+      ${nachrichtenHtml}
+      <div class="timetable-scroll">
+        <table class="timetable-table">
+          <thead><tr>${thHtml}</tr></thead>
+          <tbody>${rowsHtml || '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--clr-muted);font-size:.85rem">Kein Ausfall diese Woche</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function renderCurrentView(entries, targetDate, debug, hasData, nachrichten) {
+  if (currentView === 'woche') {
+    renderTimetableView(entries, targetDate, hasData, nachrichten);
+  } else {
+    render(entries, targetDate, debug, hasData, nachrichten);
+  }
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────
 function render(entries, targetDate, debug, hasData, nachrichten) {
   const content = document.getElementById('content');
@@ -628,14 +801,14 @@ async function fetchAndRender() {
   try {
     const { entries, debug, hasData, nachrichten } = await fetchPlan(settings, targetDate);
     lastEntries = { entries, hasData, nachrichten };
-    render(entries, targetDate, debug, hasData, nachrichten);
+    renderCurrentView(entries, targetDate, debug, hasData, nachrichten);
     setLastUpdated(new Date());
     hideError();
   } catch (err) {
     showError('Fehler beim Laden: ' + err.message);
     if (lastEntries !== null) {
       const { entries, hasData, nachrichten } = lastEntries;
-      render(entries, targetDate, null, hasData, nachrichten);
+      renderCurrentView(entries, targetDate, null, hasData, nachrichten);
     } else {
       document.getElementById('content').innerHTML = '<div class="loading">Keine Daten verfügbar.</div>';
     }
@@ -744,6 +917,51 @@ document.addEventListener('DOMContentLoaded', () => {
     const nowCollapsed = card.classList.toggle('collapsed');
     header.setAttribute('aria-expanded', String(!nowCollapsed));
   });
+
+  // View toggle
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentView = btn.dataset.view;
+      document.querySelectorAll('.view-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.view === currentView));
+      if (lastEntries) {
+        const td = getTargetDate();
+        renderCurrentView(lastEntries.entries, td, null, lastEntries.hasData, lastEntries.nachrichten);
+      }
+    });
+  });
+
+  // Stundenplan editor
+  document.getElementById('open-sp-btn').addEventListener('click', () => {
+    closeSettings();
+    openStundenplanEditor();
+  });
+  document.getElementById('sp-close-btn').addEventListener('click', closeStundenplanEditor);
+  document.getElementById('sp-cancel-btn').addEventListener('click', closeStundenplanEditor);
+  document.getElementById('sp-overlay').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('sp-overlay')) closeStundenplanEditor();
+  });
+  document.getElementById('sp-save-btn').addEventListener('click', () => {
+    saveStundenplan(collectStundenplanData());
+    closeStundenplanEditor();
+    updateViewToggleVisibility();
+  });
+
+  // Screenshot preview
+  document.getElementById('sp-img-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const img = document.getElementById('sp-img-preview');
+      img.src = evt.target.result;
+      img.classList.remove('hidden');
+      document.getElementById('sp-upload-label').classList.add('hidden');
+    };
+    reader.readAsDataURL(file);
+  });
+
+  updateViewToggleVisibility();
 
   updateWeekBar();
   fetchAndRender();

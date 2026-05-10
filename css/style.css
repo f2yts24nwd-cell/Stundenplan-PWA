@@ -827,22 +827,6 @@ html[data-dark] .error-banner {
   background: rgba(99, 102, 241, 0.14);
 }
 
-/* Settings optional label & field hint */
-.label-optional {
-  font-weight: 400;
-  opacity: 0.6;
-  font-size: 0.9em;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.settings-field-hint {
-  font-size: 0.72rem;
-  color: var(--clr-muted);
-  margin-top: 4px;
-  line-height: 1.4;
-}
-
 /* ── SP Editor overlay ────────────────────────────────────── */
 .sp-overlay-card {
   max-height: calc(100vh - 40px);
@@ -895,41 +879,6 @@ html[data-dark] .error-banner {
   object-fit: contain;
   background: #f1f5f9;
 }
-
-/* SP AI bar */
-.sp-ai-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.sp-ai-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 9px 18px;
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #fff;
-  border: none;
-  border-radius: 50px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 3px 12px rgba(99, 102, 241, 0.38);
-  transition: opacity 0.18s, transform 0.12s;
-  flex-shrink: 0;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.sp-ai-btn:active  { opacity: 0.88; transform: scale(0.97); }
-.sp-ai-btn:disabled { opacity: 0.55; cursor: default; }
-
-.sp-ai-status { font-size: 0.78rem; color: var(--clr-muted); }
-.sp-ai-ok     { color: #16a34a; font-weight: 600; }
-.sp-ai-err    { color: #dc2626; }
-
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .sp-hint {
   font-size: 0.78rem;
@@ -1128,12 +1077,8 @@ html[data-dark] .sp-upload-label:hover {
   background: rgba(129, 140, 248, 0.08);
 }
 
-html[data-dark] .sp-hint          { color: rgba(255, 255, 255, 0.4); }
-html[data-dark] .sp-hint code     { background: rgba(129, 140, 248, 0.15); color: #818cf8; }
-html[data-dark] .settings-field-hint { color: rgba(255, 255, 255, 0.38); }
-html[data-dark] .sp-ai-status     { color: rgba(255, 255, 255, 0.45); }
-html[data-dark] .sp-ai-ok         { color: #4ade80; }
-html[data-dark] .sp-ai-err        { color: #f87171; }
+html[data-dark] .sp-hint        { color: rgba(255, 255, 255, 0.4); }
+html[data-dark] .sp-hint code   { background: rgba(129, 140, 248, 0.15); color: #818cf8; }
 
 html[data-dark] .sp-close-icon {
   background: rgba(255, 255, 255, 0.08) !important;

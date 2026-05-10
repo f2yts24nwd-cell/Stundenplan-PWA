@@ -77,10 +77,6 @@
         <label for="s-klasse">Klasse</label>
         <input type="text" id="s-klasse" name="klasse" placeholder="z. B. 6C" required>
 
-        <label for="s-apikey">Anthropic API Key <span class="label-optional">(optional)</span></label>
-        <input type="password" id="s-apikey" name="apikey" placeholder="sk-ant-…" autocomplete="off">
-        <p class="settings-field-hint">Für KI-Erkennung von Stundenplan-Screenshots.</p>
-
         <div class="settings-toggle-row">
           <label for="s-darkmode" class="toggle-label">Dark Mode</label>
           <label class="toggle-switch">
@@ -125,21 +121,13 @@
         </button>
       </div>
 
-      <!-- Screenshot upload + AI parse -->
+      <!-- Screenshot upload for reference -->
       <label for="sp-img-input" class="sp-upload-label" id="sp-upload-label">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        Screenshot hochladen &amp; mit KI auslesen
+        Screenshot als Referenz hochladen
       </label>
       <input type="file" id="sp-img-input" accept="image/*" class="hidden">
       <img id="sp-img-preview" class="sp-img-preview hidden" alt="Stundenplan Vorschau">
-
-      <div id="sp-ai-bar" class="sp-ai-bar hidden">
-        <button type="button" id="sp-ai-btn" class="sp-ai-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l2 2"/></svg>
-          Mit KI auslesen
-        </button>
-        <span id="sp-ai-status" class="sp-ai-status"></span>
-      </div>
 
       <p class="sp-hint">Format je Zelle: <code>Fach/Lehrer/Raum</code> &nbsp;z.&nbsp;B.&nbsp;<code>D/CEYL/304</code></p>
 

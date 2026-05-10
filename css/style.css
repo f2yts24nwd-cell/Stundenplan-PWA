@@ -211,12 +211,87 @@ body {
   overflow: hidden;
 }
 
+/* Collapsible header — styled as button for a11y */
 .day-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px 10px;
+  padding: 12px 16px;
+  width: 100%;
+  background: none;
+  border: none;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.22s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.day-card.collapsed .day-header {
+  border-bottom-color: transparent;
+}
+
+.day-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.day-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chevron {
+  color: var(--clr-muted);
+  transition: transform 0.26s ease;
+  flex-shrink: 0;
+}
+
+.day-card.collapsed .chevron {
+  transform: rotate(-90deg);
+}
+
+/* Entry count chip shown in header */
+.day-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  background: rgba(99, 102, 241, 0.13);
+  color: #6366f1;
+  border-radius: 50px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* Small amber dot for nachrichten-only days */
+.day-msg-dot {
+  width: 8px;
+  height: 8px;
+  background: #f59e0b;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Smooth collapse using CSS grid trick */
+.day-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.26s ease;
+}
+
+.day-card.collapsed .day-body {
+  grid-template-rows: 0fr;
+}
+
+.day-body-inner {
+  overflow: hidden;
 }
 
 .day-name {
@@ -622,6 +697,15 @@ html[data-dark] {
 
 html[data-dark] .day-header {
   border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-dark] .day-card.collapsed .day-header {
+  border-bottom-color: transparent;
+}
+
+html[data-dark] .day-count {
+  background: rgba(129, 140, 248, 0.18);
+  color: #818cf8;
 }
 
 html[data-dark] .entry {

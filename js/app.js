@@ -632,7 +632,7 @@ function scheduleRefresh() {
 
 function openSettings() {
   const s = loadSettings();
-  document.getElementById('s-url').value = s.url || '';
+  document.getElementById('s-url').value = s.url || 'https://vertretungsplan.lmg-koenigsbach.de/default.htm';
   document.getElementById('s-user').value = s.user || '';
   document.getElementById('s-pass').value = s.pass || '';
   document.getElementById('s-klasse').value = s.klasse || '';

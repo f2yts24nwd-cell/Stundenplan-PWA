@@ -52,10 +52,20 @@ body {
 }
 
 .app-title {
-  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   color: #fff;
+}
+
+.app-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  flex-shrink: 0;
 }
 
 .header-actions {
@@ -478,6 +488,65 @@ body {
   background: rgba(100, 116, 139, 0.18);
 }
 
+/* ── Dark-mode toggle switch ──────────────────────────────── */
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+}
+
+.toggle-label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--clr-text);
+  cursor: pointer;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  display: block;
+  width: 50px;
+  height: 28px;
+  background: #cbd5e1;
+  border-radius: 28px;
+  position: relative;
+  transition: background 0.25s;
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background: #6366f1;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.toggle-switch input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(22px);
+}
+
 /* ── Ripple effect ────────────────────────────────────────── */
 .ripple {
   position: absolute;
@@ -540,4 +609,79 @@ body {
   line-height: 1.55;
   color: rgba(255, 255, 255, 0.5);
   font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+/* ── Dark Mode ────────────────────────────────────────────── */
+html[data-dark] {
+  --glass-card:        rgba(15, 23, 42, 0.72);
+  --glass-card-border: rgba(255, 255, 255, 0.09);
+  --clr-text:          rgba(255, 255, 255, 0.92);
+  --clr-muted:         rgba(255, 255, 255, 0.48);
+  --clr-success:       #4ade80;
+}
+
+html[data-dark] .day-header {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-dark] .entry {
+  border-top-color: rgba(255, 255, 255, 0.05);
+}
+
+html[data-dark] .entry + .entry {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-dark] .entry.ausfall     { background: rgba(244, 63, 94, 0.14); }
+html[data-dark] .entry.vertretung  { background: rgba(245, 158, 11, 0.13); }
+html[data-dark] .entry.raum        { background: rgba(56, 189, 248, 0.13); }
+
+html[data-dark] .day-nachrichten {
+  background: rgba(120, 83, 0, 0.28);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-dark] .nachricht-item { color: #fcd34d; }
+
+html[data-dark] .overlay-card {
+  background: rgba(15, 23, 42, 0.96);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+html[data-dark] .overlay-card h2 { color: rgba(255, 255, 255, 0.92); }
+
+html[data-dark] #settings-form label { color: rgba(255, 255, 255, 0.44); }
+
+html[data-dark] #settings-form input {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+html[data-dark] #settings-form input:focus {
+  border-color: #818cf8;
+  background: rgba(255, 255, 255, 0.11);
+}
+
+html[data-dark] .btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+html[data-dark] .settings-divider   { background: rgba(255, 255, 255, 0.1); }
+
+html[data-dark] .debug-toggle-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.48);
+}
+
+html[data-dark] .toggle-track       { background: rgba(255, 255, 255, 0.2); }
+html[data-dark] .toggle-label       { color: rgba(255, 255, 255, 0.88); }
+
+html[data-dark] .error-banner {
+  background: rgba(127, 29, 29, 0.7);
+  color: #fca5a5;
+  border-left-color: #f43f5e;
 }

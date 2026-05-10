@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 
+  <!-- Apply dark mode before first paint to avoid flash -->
+  <script>try{if(JSON.parse(localStorage.getItem('vplan_settings')||'{}').dark)document.documentElement.setAttribute('data-dark','')}catch{}</script>
+
   <!-- PWA -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1d4ed8">
@@ -11,17 +14,23 @@
   <!-- iOS PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="VPlan">
+  <meta name="apple-mobile-web-app-title" content="LMG Vplan">
   <link rel="apple-touch-icon" href="icon-192.png">
 
-  <title>Vertretungsplan</title>
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+
+  <title>LMG Vertretungsplan</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
   <!-- Header -->
   <header id="header">
-    <span class="app-title">Vertretungsplan</span>
+    <div class="app-title">
+      <img src="icon.svg" class="app-logo" alt="" aria-hidden="true">
+      <span>LMG Vertretungsplan</span>
+    </div>
     <div class="header-actions">
       <button id="reset-btn" class="icon-btn" aria-label="Cache leeren und neu laden" title="Neu laden">
         <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -80,6 +89,15 @@
 
         <label for="s-klasse">Klasse</label>
         <input type="text" id="s-klasse" name="klasse" placeholder="z. B. 10a" required>
+
+        <!-- Dark mode toggle -->
+        <div class="settings-toggle-row">
+          <label for="s-darkmode" class="toggle-label">Dark Mode</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="s-darkmode" name="darkmode">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
 
         <div class="form-actions">
           <button type="button" id="settings-cancel-btn" class="btn-secondary">Abbrechen</button>

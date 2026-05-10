@@ -22,6 +22,11 @@ function loadSettings() {
 function saveSettings(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
 function settingsAreComplete(s) { return s && s.url && s.klasse; }
 
+function applyDarkMode(enabled) {
+  if (enabled) document.documentElement.setAttribute('data-dark', '');
+  else document.documentElement.removeAttribute('data-dark');
+}
+
 // ── Date helpers ───────────────────────────────────────────────────────────
 function addDays(date, n) {
   const d = new Date(date);
@@ -631,6 +636,7 @@ function openSettings() {
   document.getElementById('s-user').value = s.user || '';
   document.getElementById('s-pass').value = s.pass || '';
   document.getElementById('s-klasse').value = s.klasse || '';
+  document.getElementById('s-darkmode').checked = !!s.dark;
   document.getElementById('settings-overlay').classList.remove('hidden');
 }
 function closeSettings() { document.getElementById('settings-overlay').classList.add('hidden'); }
@@ -653,8 +659,16 @@ function addRipple(el) {
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Apply saved dark mode preference
+  applyDarkMode(!!loadSettings().dark);
+
   // Ripple on all interactive buttons
   document.querySelectorAll('.icon-btn, .nav-btn').forEach(addRipple);
+
+  // Live dark mode preview while settings is open
+  document.getElementById('s-darkmode').addEventListener('change', function () {
+    applyDarkMode(this.checked);
+  });
 
   // Debug toggle inside settings
   document.getElementById('debug-toggle-btn').addEventListener('click', () => {
@@ -692,6 +706,7 @@ document.addEventListener('DOMContentLoaded', () => {
       user:   document.getElementById('s-user').value.trim(),
       pass:   document.getElementById('s-pass').value,
       klasse: document.getElementById('s-klasse').value.trim(),
+      dark:   document.getElementById('s-darkmode').checked,
     };
     saveSettings(s);
     closeSettings();

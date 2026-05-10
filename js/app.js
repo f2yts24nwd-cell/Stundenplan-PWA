@@ -527,10 +527,51 @@ function openStundenplanEditor() {
   buildEditorTable();
   const prev = document.getElementById('sp-img-preview');
   const lbl = document.getElementById('sp-upload-label');
+  const bar = document.getElementById('sp-ai-bar');
   prev.classList.add('hidden');
   prev.src = '';
   lbl.classList.remove('hidden');
+  bar.classList.add('hidden');
+  document.getElementById('sp-ai-status').textContent = '';
   document.getElementById('sp-overlay').classList.remove('hidden');
+}
+
+// ── AI image parsing ───────────────────────────────────────────────────────
+async function parseImageWithAI(apiKey, base64, mediaType) {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1200,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text:
+            'This is a German school timetable (Stundenplan). ' +
+            'Extract the data and return ONLY a JSON array with exactly 10 rows (periods 1–10) and 5 columns (Mon–Fri). ' +
+            'Each cell value must be "Fach/Lehrer/Raum" using the exact abbreviations shown, or "" if empty. ' +
+            'Example: [["D/CEYL/304","RKKOOP/AUFM/304","E/SCHO/304","SPO/REI/SP D","E/SCHO/304"],...]. ' +
+            'Return ONLY the JSON array, no explanation, no markdown.' }
+        ]
+      }]
+    })
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${resp.status}`);
+  }
+  const data = await resp.json();
+  const text = (data.content?.[0]?.text || '').trim();
+  const match = text.match(/\[[\s\S]*\]/);
+  if (!match) throw new Error('Unerwartetes Antwortformat');
+  return JSON.parse(match[0]);
 }
 
 function closeStundenplanEditor() {
@@ -826,6 +867,7 @@ function openSettings() {
   document.getElementById('s-user').value = s.user || '';
   document.getElementById('s-pass').value = s.pass || '';
   document.getElementById('s-klasse').value = s.klasse || '';
+  document.getElementById('s-apikey').value = s.apiKey || '';
   document.getElementById('s-darkmode').checked = !!s.dark;
   document.getElementById('settings-overlay').classList.remove('hidden');
 }
@@ -896,6 +938,7 @@ document.addEventListener('DOMContentLoaded', () => {
       user:   document.getElementById('s-user').value.trim(),
       pass:   document.getElementById('s-pass').value,
       klasse: document.getElementById('s-klasse').value.trim(),
+      apiKey: document.getElementById('s-apikey').value.trim(),
       dark:   document.getElementById('s-darkmode').checked,
     };
     saveSettings(s);
@@ -947,7 +990,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateViewToggleVisibility();
   });
 
-  // Screenshot preview
+  // Screenshot preview + show AI button if API key present
   document.getElementById('sp-img-input').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -957,8 +1000,52 @@ document.addEventListener('DOMContentLoaded', () => {
       img.src = evt.target.result;
       img.classList.remove('hidden');
       document.getElementById('sp-upload-label').classList.add('hidden');
+      document.getElementById('sp-ai-status').textContent = '';
+      // Show AI bar only when an API key is stored
+      if (loadSettings().apiKey) {
+        document.getElementById('sp-ai-bar').classList.remove('hidden');
+      } else {
+        document.getElementById('sp-ai-bar').classList.add('hidden');
+      }
     };
     reader.readAsDataURL(file);
+  });
+
+  // AI parse button
+  document.getElementById('sp-ai-btn').addEventListener('click', async () => {
+    const apiKey = loadSettings().apiKey;
+    if (!apiKey) return;
+    const img = document.getElementById('sp-img-preview');
+    if (!img.src || img.classList.contains('hidden')) return;
+
+    const btn = document.getElementById('sp-ai-btn');
+    const status = document.getElementById('sp-ai-status');
+    btn.disabled = true;
+    btn.querySelector('svg').style.animation = 'spin 1s linear infinite';
+    status.textContent = 'Analysiere…';
+
+    try {
+      const [header, base64] = img.src.split(',');
+      const mediaType = (header.match(/:(.*?);/) || [])[1] || 'image/jpeg';
+      const cells = await parseImageWithAI(apiKey, base64, mediaType);
+      if (!Array.isArray(cells)) throw new Error('Unerwartetes Format');
+
+      cells.slice(0, SP_PERIODS).forEach((row, p) => {
+        if (!Array.isArray(row)) return;
+        row.slice(0, 5).forEach((val, d) => {
+          const inp = document.querySelector(`#sp-editor-table input[data-p="${p}"][data-d="${d}"]`);
+          if (inp) inp.value = val || '';
+        });
+      });
+      status.textContent = '✓ Erfolgreich ausgelesen';
+      status.className = 'sp-ai-status sp-ai-ok';
+    } catch (err) {
+      status.textContent = 'Fehler: ' + err.message;
+      status.className = 'sp-ai-status sp-ai-err';
+    } finally {
+      btn.disabled = false;
+      btn.querySelector('svg').style.animation = '';
+    }
   });
 
   updateViewToggleVisibility();

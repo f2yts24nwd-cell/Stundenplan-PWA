@@ -19,8 +19,8 @@
   --clr-muted:      rgba(60,60,67,0.55);
   --clr-success:    var(--ios-green);
 
-  --glass-card:        rgba(255,255,255,0.88);
-  --glass-card-border: rgba(255,255,255,0.6);
+  --glass-card:        rgba(255,255,255,0.93);
+  --glass-card-border: rgba(255,255,255,0.72);
   --glass-ui:          rgba(255,255,255,0.16);
   --glass-ui-border:   rgba(255,255,255,0.28);
 
@@ -32,14 +32,15 @@
   --radius-xs: 10px;
 }
 
-/* ── Background: deep mesh gradient ─────────────────────────── */
+/* ── Background: vivid mesh gradient ────────────────────────── */
 body {
   min-height: 100dvh;
   background:
-    radial-gradient(ellipse 70% 55% at 15% 0%,   rgba(88,86,214,0.32) 0%, transparent 55%),
-    radial-gradient(ellipse 55% 45% at 85% 105%,  rgba(175,82,222,0.26) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 60% at 50% 50%,   rgba(10,132,255,0.08) 0%, transparent 70%),
-    #0b0d20;
+    radial-gradient(ellipse 65% 50% at 10%  0%,   rgba(100,88,255,0.52) 0%, transparent 52%),
+    radial-gradient(ellipse 50% 45% at 90% 108%,   rgba(208,64,255,0.44) 0%, transparent 52%),
+    radial-gradient(ellipse 45% 50% at 55%  44%,   rgba(0,160,255,0.18)  0%, transparent 62%),
+    radial-gradient(ellipse 55% 35% at 20%  95%,   rgba(0,220,185,0.18)  0%, transparent 52%),
+    #07091a;
   background-attachment: fixed;
   font-family: -apple-system, 'SF Pro Text', BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 16px;
@@ -57,10 +58,10 @@ body {
   justify-content: space-between;
   padding: 13px 16px;
   padding-top: max(13px, env(safe-area-inset-top));
-  background: rgba(11,13,32,0.68);
-  backdrop-filter: blur(48px) saturate(180%);
-  -webkit-backdrop-filter: blur(48px) saturate(180%);
-  border-bottom: 0.5px solid rgba(255,255,255,0.11);
+  background: rgba(7,9,26,0.72);
+  backdrop-filter: blur(48px) saturate(220%);
+  -webkit-backdrop-filter: blur(48px) saturate(220%);
+  border-bottom: 0.5px solid rgba(255,255,255,0.16);
 }
 
 .app-title {
@@ -159,10 +160,10 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .view-btn.active {
-  background: rgba(255,255,255,0.9);
-  color: #3730a3;
+  background: var(--ios-blue);
+  color: #fff;
   border-color: transparent;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  box-shadow: 0 2px 12px rgba(0,122,255,0.38);
 }
 .view-btn:active:not(.active) { background: rgba(255,255,255,0.18); }
 
@@ -582,19 +583,15 @@ body {
 /* ── Help overlay ────────────────────────────────────────────── */
 .help-card {
   max-height: calc(100dvh - 40px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.help-content {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  flex: 1;
-  min-height: 0;
+  padding-bottom: max(22px, env(safe-area-inset-bottom));
+}
+.help-content {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-bottom: 4px;
+  padding-top: 2px;
 }
 .help-section {
   background: rgba(118,118,128,0.07);
@@ -833,8 +830,9 @@ html[data-dark] {
 
 html[data-dark] body {
   background:
-    radial-gradient(ellipse 70% 55% at 15% 0%,   rgba(88,86,214,0.18) 0%, transparent 55%),
-    radial-gradient(ellipse 55% 45% at 85% 105%,  rgba(175,82,222,0.14) 0%, transparent 55%),
+    radial-gradient(ellipse 65% 50% at 10%  0%,   rgba(100,88,255,0.22) 0%, transparent 52%),
+    radial-gradient(ellipse 50% 45% at 90% 108%,   rgba(208,64,255,0.18) 0%, transparent 52%),
+    radial-gradient(ellipse 55% 35% at 20%  95%,   rgba(0,220,185,0.12)  0%, transparent 52%),
     #000000;
 }
 
@@ -896,7 +894,7 @@ html[data-dark] .tt-cell.tt-vertretung          { background: rgba(255,159,10,0.
 html[data-dark] .tt-cell.tt-raum                { background: rgba(100,210,255,0.18); }
 
 /* View toggle dark */
-html[data-dark] .view-btn.active         { background: rgba(255,255,255,0.88); color: #3730a3; }
+html[data-dark] .view-btn.active         { background: var(--ios-blue); color: #fff; box-shadow: 0 2px 12px rgba(10,132,255,0.4); }
 
 /* Share sheet dark */
 html[data-dark] .share-sheet            { background: rgba(22,22,30,0.98); }

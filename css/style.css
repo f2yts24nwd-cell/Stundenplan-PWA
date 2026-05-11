@@ -584,11 +584,13 @@ body {
   max-height: calc(100dvh - 40px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .help-content {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;

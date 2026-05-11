@@ -537,6 +537,53 @@ function closeStundenplanEditor() {
   document.getElementById('sp-overlay').classList.add('hidden');
 }
 
+// ── Stundenplan share / import ─────────────────────────────────────────────
+function encodeStundenplan(sp) {
+  try {
+    const json = JSON.stringify(sp);
+    return btoa(unescape(encodeURIComponent(json)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  } catch { return ''; }
+}
+
+function decodeStundenplan(encoded) {
+  try {
+    const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '==='.slice(0, (4 - b64.length % 4) % 4);
+    return JSON.parse(decodeURIComponent(escape(atob(padded))));
+  } catch { return null; }
+}
+
+function getShareUrl(sp) {
+  const base = location.href.split('?')[0].replace(/\/$/, '');
+  return `${base}?sp=${encodeStundenplan(sp)}`;
+}
+
+function openShareOverlay() {
+  const sp = loadStundenplan();
+  if (!sp) return;
+  const url = getShareUrl(sp);
+  document.getElementById('share-url-input').value = url;
+  document.getElementById('share-qr-img').src =
+    `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=${encodeURIComponent(url)}`;
+  document.getElementById('share-overlay').classList.remove('hidden');
+}
+
+function closeShareOverlay() {
+  document.getElementById('share-overlay').classList.add('hidden');
+}
+
+function checkImportFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const encoded = params.get('sp');
+  if (!encoded) return;
+  const sp = decodeStundenplan(encoded);
+  if (!sp || !Array.isArray(sp.cells)) return;
+  history.replaceState({}, '', location.pathname);
+  window._pendingImport = sp;
+  document.getElementById('import-banner').classList.remove('hidden');
+}
+
 // ── Timetable week view ────────────────────────────────────────────────────
 function expandStundenRange(stunde) {
   if (!stunde) return [];
@@ -960,6 +1007,47 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     reader.readAsDataURL(file);
   });
+
+  // Share overlay
+  document.getElementById('sp-share-btn').addEventListener('click', () => {
+    const data = collectStundenplanData();
+    saveStundenplan(data);
+    updateViewToggleVisibility();
+    closeStundenplanEditor();
+    openShareOverlay();
+  });
+  document.getElementById('share-close-btn').addEventListener('click', closeShareOverlay);
+  document.getElementById('share-overlay').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('share-overlay')) closeShareOverlay();
+  });
+  document.getElementById('share-copy-btn').addEventListener('click', async () => {
+    const url = document.getElementById('share-url-input').value;
+    const btn = document.getElementById('share-copy-btn');
+    try {
+      await navigator.clipboard.writeText(url);
+      btn.textContent = '✓ Kopiert';
+    } catch {
+      document.getElementById('share-url-input').select();
+      btn.textContent = '✓ Markiert';
+    }
+    setTimeout(() => { btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Kopieren'; }, 2200);
+  });
+
+  // Import from share link
+  document.getElementById('import-confirm-btn').addEventListener('click', () => {
+    if (window._pendingImport) {
+      saveStundenplan(window._pendingImport);
+      updateViewToggleVisibility();
+      window._pendingImport = null;
+    }
+    document.getElementById('import-banner').classList.add('hidden');
+  });
+  document.getElementById('import-cancel-btn').addEventListener('click', () => {
+    window._pendingImport = null;
+    document.getElementById('import-banner').classList.add('hidden');
+  });
+
+  checkImportFromUrl();
 
   updateViewToggleVisibility();
 

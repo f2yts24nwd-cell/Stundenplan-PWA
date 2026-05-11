@@ -576,40 +576,61 @@ body {
 
 .hidden { display: none !important; }
 
-/* ── Settings divider & debug ────────────────────────────────── */
+/* ── Settings divider ────────────────────────────────────────── */
 .settings-divider { height: 0.5px; background: rgba(60,60,67,0.16); margin: 20px 0 14px; }
 
-.debug-toggle-btn {
+/* ── Help overlay ────────────────────────────────────────────── */
+.help-card {
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.help-content {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+.help-section {
+  background: rgba(118,118,128,0.07);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+.help-section-title {
+  font-size: 0.67rem;
+  font-weight: 700;
+  color: rgba(60,60,67,0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 10px 14px 6px;
+}
+.help-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 0.5px solid rgba(60,60,67,0.08);
+}
+.help-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  background: rgba(118,118,128,0.1);
-  border: 0.5px solid rgba(60,60,67,0.14);
-  border-radius: var(--radius-xs);
-  padding: 9px 13px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: rgba(60,60,67,0.5);
-  cursor: pointer;
-  width: 100%;
-  -webkit-tap-highlight-color: transparent;
+  justify-content: center;
+  flex-shrink: 0;
 }
-.debug-toggle-btn:active { background: rgba(118,118,128,0.18); }
-
-#debug-container {
-  margin-top: 10px;
-  background: #0f1020;
-  border-radius: var(--radius-xs);
-  padding: 12px 14px;
-}
-#debug-container pre {
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-size: 0.65rem;
-  line-height: 1.55;
-  color: rgba(255,255,255,0.44);
-  font-family: 'SF Mono','Fira Code',monospace;
-}
+.help-icon-blue   { background: rgba(0,122,255,0.14);   color: var(--ios-blue); }
+.help-icon-gray   { background: rgba(118,118,128,0.14); color: rgba(60,60,67,0.55); }
+.help-icon-purple { background: rgba(88,86,214,0.14);   color: #5856d6; }
+.help-icon-indigo { background: rgba(88,86,214,0.14);   color: #5856d6; }
+.help-icon-green  { background: rgba(52,199,89,0.14);   color: var(--ios-green); }
+.help-item-body   { flex: 1; min-width: 0; }
+.help-item-title  { font-size: 0.88rem; font-weight: 600; color: #1c1c1e; margin-bottom: 2px; }
+.help-item-desc   { font-size: 0.78rem; color: rgba(60,60,67,0.58); line-height: 1.5; }
 
 /* ── SP Settings link ────────────────────────────────────────── */
 .sp-settings-link {
@@ -843,7 +864,12 @@ html[data-dark] .btn-secondary:active   { background: rgba(255,255,255,0.18); }
 html[data-dark] .toggle-label          { color: rgba(255,255,255,0.88); }
 html[data-dark] .toggle-track          { background: rgba(118,118,128,0.34); }
 html[data-dark] .settings-divider       { background: rgba(84,84,88,0.5); }
-html[data-dark] .debug-toggle-btn       { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.09); color: rgba(235,235,245,0.44); }
+html[data-dark] .help-section           { background: rgba(255,255,255,0.06); }
+html[data-dark] .help-section-title     { color: rgba(235,235,245,0.38); }
+html[data-dark] .help-item              { border-top-color: rgba(255,255,255,0.07); }
+html[data-dark] .help-item-title        { color: rgba(255,255,255,0.9); }
+html[data-dark] .help-item-desc         { color: rgba(235,235,245,0.48); }
+html[data-dark] .help-icon-gray         { background: rgba(255,255,255,0.1); color: rgba(235,235,245,0.5); }
 html[data-dark] .sp-settings-link       { background: rgba(10,132,255,0.12); border-color: rgba(10,132,255,0.25); }
 html[data-dark] .sp-close-icon          { background: rgba(255,255,255,0.1) !important; border-color: rgba(255,255,255,0.09) !important; color: rgba(235,235,245,0.48) !important; }
 html[data-dark] .sp-upload-label        { border-color: rgba(255,255,255,0.14); color: rgba(235,235,245,0.44); }

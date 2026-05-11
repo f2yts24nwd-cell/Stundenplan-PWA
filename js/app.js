@@ -703,14 +703,6 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
   const content = document.getElementById('content');
   const monday = getMondayOf(targetDate);
 
-  // Update debug content inside settings panel (visible only when settings is open)
-  const debugContainer = document.getElementById('debug-container');
-  const debugSection = document.getElementById('debug-section');
-  if (debug && debugContainer) {
-    debugContainer.innerHTML = `<pre>${escHtml(debug)}</pre>`;
-    if (debugSection) debugSection.classList.remove('hidden');
-  }
-
   // Week not published: no real data tables found at all
   if (!hasData) {
     content.innerHTML =
@@ -907,12 +899,15 @@ document.addEventListener('DOMContentLoaded', () => {
     applyDarkMode(this.checked);
   });
 
-  // Debug toggle inside settings
-  document.getElementById('debug-toggle-btn').addEventListener('click', () => {
-    const container = document.getElementById('debug-container');
-    const label = document.getElementById('debug-toggle-label');
-    const isHidden = container.classList.toggle('hidden');
-    label.textContent = isHidden ? 'Diagnose anzeigen' : 'Diagnose ausblenden';
+  // Help overlay
+  document.getElementById('help-btn').addEventListener('click', () => {
+    document.getElementById('help-overlay').classList.remove('hidden');
+  });
+  document.getElementById('help-close-btn').addEventListener('click', () => {
+    document.getElementById('help-overlay').classList.add('hidden');
+  });
+  document.getElementById('help-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) document.getElementById('help-overlay').classList.add('hidden');
   });
 
   document.getElementById('reset-btn').addEventListener('click', async () => {

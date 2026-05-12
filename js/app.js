@@ -722,8 +722,11 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
 
   const chevronSvg = `<svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
 
+  const todayIso = isoDateLocal(new Date());
+
   const html = Object.entries(byDate).map(([iso, dayEntries]) => {
     const date = new Date(iso + 'T00:00:00');
+    const isToday = iso === todayIso;
     const dayName = WEEKDAY_LABELS[date.getDay() - 1] || DAY_NAMES[date.getDay()];
     const dateStr = formatDateShort(date) + date.getFullYear();
 
@@ -736,9 +739,9 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
       ? dayEntries.map(renderEntry).join('')
       : `<div class="no-change">Kein Ausfall</div>`;
 
-    // Collapse by default when there's nothing relevant to show
+    // Collapse by default when nothing to show; always expand today
     const hasContent = dayEntries.length > 0 || msgs.length > 0;
-    const collapsed = hasContent ? '' : ' collapsed';
+    const collapsed = (hasContent || isToday) ? '' : ' collapsed';
 
     // Small header chip: entry count or nachrichten dot
     let chipHtml = '';
@@ -748,12 +751,15 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
       chipHtml = `<span class="day-msg-dot" aria-hidden="true"></span>`;
     }
 
+    const todayClass = isToday ? ' today' : '';
+    const todayChip = isToday ? '<span class="day-today-chip">Heute</span>' : '';
+
     return `
-      <div class="day-card${collapsed}">
+      <div class="day-card${collapsed}${todayClass}">
         <button class="day-header" aria-expanded="${hasContent}">
           <div class="day-header-info">
             <span class="day-name">${dayName}</span>
-            <span class="day-date">${dateStr}</span>
+            <span class="day-date">${dateStr}${todayChip}</span>
           </div>
           <div class="day-header-right">${chipHtml}${chevronSvg}</div>
         </button>

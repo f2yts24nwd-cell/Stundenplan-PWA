@@ -275,6 +275,34 @@ body {
 }
 
 /* ── Day card ────────────────────────────────────────────────── */
+/* Today highlight */
+.day-card.today {
+  border-color: rgba(0,122,255,0.35);
+  box-shadow: var(--shadow-card), 0 0 0 1px rgba(0,122,255,0.18);
+}
+.day-card.today::before {
+  content: '';
+  display: block;
+  height: 3px;
+  background: linear-gradient(90deg, var(--ios-blue), #5ac8fa);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.day-card.today .day-name {
+  color: var(--ios-blue);
+}
+.day-today-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  background: var(--ios-blue);
+  color: #fff;
+  border-radius: 50px;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
 .day-card {
   background: var(--glass-card);
   backdrop-filter: blur(32px) saturate(180%);
@@ -837,6 +865,9 @@ html[data-dark] body {
 }
 
 /* Cards & day headers */
+html[data-dark] .day-card.today         { border-color: rgba(10,132,255,0.4); box-shadow: var(--shadow-card), 0 0 0 1px rgba(10,132,255,0.22); }
+html[data-dark] .day-card.today .day-name { color: var(--ios-blue); }
+html[data-dark] .day-today-chip         { background: var(--ios-blue); }
 html[data-dark] .day-header              { border-bottom-color: rgba(255,255,255,0.07); }
 html[data-dark] .day-card.collapsed .day-header { border-bottom-color: transparent; }
 html[data-dark] .day-count              { background: rgba(10,132,255,0.2); }

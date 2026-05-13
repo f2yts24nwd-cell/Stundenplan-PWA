@@ -599,16 +599,32 @@ function expandStundenRange(stunde) {
 function renderTimetableCell(subst, regularStr) {
   const typClass = `tt-${subst.typ}`;
   const origFach = (regularStr || '').split('/')[0] || '';
+  const origRaum = (regularStr || '').split('/')[2] || '';
   let inner = '';
+
   if (subst.typ === 'ausfall') {
-    inner = `<span class="tt-strike">${escHtml(origFach || subst.stattFach || '')}</span>`;
-  } else {
+    const displayOrig = origFach || subst.stattFach || '';
+    inner = `<span class="tt-strike">${escHtml(displayOrig)}</span>`;
+
+  } else if (subst.typ === 'vertretung') {
     const fach = subst.fach && subst.fach !== '---' ? subst.fach : origFach;
-    inner = escHtml(fach);
+    const orig = origFach || (subst.stattFach && subst.stattFach !== '---' ? subst.stattFach : '');
     const raum = subst.stattRaum && subst.stattRaum !== '---' ? subst.stattRaum
-                : subst.raum && subst.raum !== '---' ? subst.raum : '';
+               : subst.raum && subst.raum !== '---' ? subst.raum : '';
+    inner = escHtml(fach);
     if (raum) inner += `<span class="tt-room">${escHtml(raum)}</span>`;
+    if (orig && orig !== fach) inner += `<span class="tt-orig">statt ${escHtml(orig)}</span>`;
+
+  } else {
+    // raum change
+    const fach = subst.fach && subst.fach !== '---' ? subst.fach : origFach;
+    const raum = subst.stattRaum && subst.stattRaum !== '---' ? subst.stattRaum
+               : subst.raum && subst.raum !== '---' ? subst.raum : '';
+    inner = escHtml(fach);
+    if (raum) inner += `<span class="tt-room">${escHtml(raum)}</span>`;
+    if (origRaum && origRaum !== raum) inner += `<span class="tt-orig">statt R.${escHtml(origRaum)}</span>`;
   }
+
   return `<td class="tt-cell ${typClass}" title="${escHtml(subst.info || '')}">${inner}</td>`;
 }
 

@@ -792,7 +792,8 @@ body {
   vertical-align: middle;
   border: 0.5px solid rgba(0,0,0,0.04);
   min-width: 52px;
-  height: 36px;
+  height: auto;
+  min-height: 36px;
 }
 .timetable-table tbody td.tt-period {
   font-size: 0.66rem;
@@ -804,6 +805,7 @@ body {
 }
 .tt-cell { font-size: 0.73rem; font-weight: 500; color: var(--clr-text); line-height: 1.3; }
 .tt-cell .tt-room { display: block; font-size: 0.6rem; color: var(--clr-muted); font-weight: 400; }
+.tt-cell .tt-orig { display: block; font-size: 0.58rem; color: var(--clr-muted); opacity: 0.75; font-style: italic; margin-top: 1px; }
 .tt-cell.tt-ausfall    { background: rgba(255,59,48,0.09);   }
 .tt-cell.tt-vertretung { background: rgba(255,149,0,0.09);   }
 .tt-cell.tt-raum       { background: rgba(50,173,230,0.09);  }

@@ -1,8 +1,10 @@
 'use strict';
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const SETTINGS_KEY = 'vplan_settings';
-const STUNDENPLAN_KEY = 'vplan_stundenplan';
+const SETTINGS_KEY     = 'vplan_settings';
+const STUNDENPLAN_KEY  = 'vplan_stundenplan';
+const SNAPSHOT_KEY     = 'vplan_snapshot';
+const LAST_UPDATED_KEY = 'vplan_last_updated';
 const PROXIES = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const SP_PERIODS = 10;
@@ -839,9 +841,73 @@ function showError(msg) {
   banner.classList.remove('hidden');
 }
 function hideError() { document.getElementById('error-banner').classList.add('hidden'); }
+// ── Snapshot helpers ───────────────────────────────────────────────────────
+function snapWeekKey(targetDate, klasse) {
+  return `${klasse.toLowerCase()}_${isoDateLocal(getMondayOf(targetDate))}`;
+}
+
+function buildSnapshot(entries) {
+  const byDate = {};
+  for (const e of entries) {
+    if (!e.datumNorm) continue;
+    if (!byDate[e.datumNorm]) byDate[e.datumNorm] = [];
+    byDate[e.datumNorm].push(`${(e.stunde||'').trim()}|${(e.fach||'').trim()}|${e.typ}`);
+  }
+  for (const k of Object.keys(byDate)) byDate[k].sort();
+  return byDate;
+}
+
+function loadSnapshot(wKey) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '{}');
+    return wKey in all ? all[wKey] : null;
+  } catch { return null; }
+}
+
+function saveSnapshot(wKey, snapshot) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '{}');
+    const keys = Object.keys(all);
+    if (keys.length >= 20) delete all[keys.sort()[0]];
+    all[wKey] = snapshot;
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(all));
+  } catch {}
+}
+
+function detectChangedDates(prev, curr) {
+  const dates = new Set([...Object.keys(prev || {}), ...Object.keys(curr)]);
+  return [...dates].sort().filter(d =>
+    JSON.stringify((prev || {})[d] || []) !== JSON.stringify(curr[d] || [])
+  );
+}
+
+function showChangesBanner(changedDates) {
+  const names = changedDates.map(iso => {
+    const d = new Date(iso + 'T00:00:00');
+    return WEEKDAY_LABELS[d.getDay() - 1] || iso;
+  });
+  document.getElementById('changes-banner-days').textContent = names.join(' · ');
+  const banner = document.getElementById('changes-banner');
+  banner.classList.remove('hidden');
+  clearTimeout(banner._t);
+  banner._t = setTimeout(() => banner.classList.add('hidden'), 12000);
+}
+
+// ── Last-updated display ───────────────────────────────────────────────────
+function renderLastUpdated(date) {
+  const now  = new Date();
+  const prev = new Date(now); prev.setDate(prev.getDate() - 1);
+  const time = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  let prefix;
+  if (date.toDateString() === now.toDateString())  prefix = 'Heute';
+  else if (date.toDateString() === prev.toDateString()) prefix = 'Gestern';
+  else prefix = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  document.getElementById('last-updated').textContent = `Stand: ${prefix} ${time} Uhr`;
+}
+
 function setLastUpdated(date) {
-  document.getElementById('last-updated').textContent =
-    'Zuletzt aktualisiert: ' + date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+  try { localStorage.setItem(LAST_UPDATED_KEY, date.toISOString()); } catch {}
+  renderLastUpdated(date);
 }
 
 async function fetchAndRender() {
@@ -865,6 +931,16 @@ async function fetchAndRender() {
     renderCurrentView(entries, targetDate, debug, hasData, nachrichten);
     setLastUpdated(new Date());
     hideError();
+
+    // Change detection
+    const wKey = snapWeekKey(targetDate, settings.klasse);
+    const prevSnap = loadSnapshot(wKey);
+    const newSnap  = buildSnapshot(entries);
+    saveSnapshot(wKey, newSnap);
+    if (prevSnap !== null) {
+      const changed = detectChangedDates(prevSnap, newSnap);
+      if (changed.length > 0) showChangesBanner(changed);
+    }
   } catch (err) {
     showError('Fehler beim Laden: ' + err.message);
     if (lastEntries !== null) {
@@ -1065,6 +1141,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   checkImportFromUrl();
+
+  // Restore persisted last-updated timestamp immediately (visible before fetch completes)
+  try {
+    const ts = localStorage.getItem(LAST_UPDATED_KEY);
+    if (ts) renderLastUpdated(new Date(ts));
+  } catch {}
+
+  document.getElementById('changes-close-btn').addEventListener('click', () => {
+    document.getElementById('changes-banner').classList.add('hidden');
+  });
 
   updateViewToggleVisibility();
 

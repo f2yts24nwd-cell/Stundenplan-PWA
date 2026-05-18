@@ -257,6 +257,60 @@ body {
 }
 .import-btn-cancel:active { background: rgba(120,120,128,0.28); }
 
+/* ── Changes notification banner (fixed bottom) ─────────────── */
+.changes-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 150;
+  padding: 0 12px max(16px, env(safe-area-inset-bottom)) 12px;
+  pointer-events: none;
+}
+.changes-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  background: rgba(255,255,255,0.97);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border-radius: 18px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.20), 0 2px 8px rgba(0,0,0,0.10);
+  pointer-events: all;
+  animation: banner-slide-up 0.36s cubic-bezier(0.32,0.72,0,1);
+}
+@keyframes banner-slide-up { from { transform: translateY(120%); opacity: 0; } to { transform: none; opacity: 1; } }
+.changes-banner-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--ios-blue), #5ac8fa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+.changes-banner-text { flex: 1; min-width: 0; }
+.changes-banner-title { font-size: 0.88rem; font-weight: 700; color: #1c1c1e; }
+.changes-banner-days  { font-size: 0.77rem; color: rgba(60,60,67,0.6); margin-top: 1px; }
+.changes-close-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background: rgba(120,120,128,0.14);
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #8e8e93;
+  -webkit-tap-highlight-color: transparent;
+}
+.changes-close-btn:active { background: rgba(120,120,128,0.26); }
+
 /* ── Main content ────────────────────────────────────────────── */
 #content {
   padding: 12px;
@@ -939,6 +993,12 @@ html[data-dark] .share-url-input        { color: rgba(255,255,255,0.3); }
 html[data-dark] .share-copy-inline      { color: var(--ios-blue); }
 html[data-dark] .share-hint             { color: rgba(235,235,245,0.36); }
 html[data-dark] .share-dismiss-btn      { background: #2c2c2e; color: var(--ios-blue); }
+
+/* Changes banner dark */
+html[data-dark] .changes-banner-inner  { background: rgba(22,22,30,0.97); }
+html[data-dark] .changes-banner-title  { color: rgba(255,255,255,0.92); }
+html[data-dark] .changes-banner-days   { color: rgba(235,235,245,0.48); }
+html[data-dark] .changes-close-btn     { background: rgba(255,255,255,0.12); color: rgba(235,235,245,0.5); }
 
 /* Import banner dark */
 html[data-dark] .import-banner          { background: rgba(22,22,30,0.97); }

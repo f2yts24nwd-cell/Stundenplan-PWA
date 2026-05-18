@@ -98,6 +98,71 @@ body {
 }
 .icon-btn:active { background: rgba(255,255,255,0.3); transform: scale(0.88); }
 
+/* ═══════════════════════════════════════════════════════════════
+   GLASS BUTTON SYSTEM – Gloss + animated shimmer sweep
+   mix-blend-mode: overlay → works on any bg, never obscures text
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes glass-sweep {
+  0%   { transform: translateX(-160%) skewX(-20deg); }
+  28%  { transform: translateX(270%)  skewX(-20deg); }
+  100% { transform: translateX(270%)  skewX(-20deg); }
+}
+
+/* Gloss: static bright highlight curving over top third of button */
+.icon-btn::before, .nav-btn::before, .view-btn::before,
+.btn-primary::before, .btn-secondary::before,
+.sp-settings-link::before, .share-dismiss-btn::before,
+.import-btn-confirm::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(175deg,
+    rgba(255,255,255,0.34) 0%,
+    rgba(255,255,255,0.07) 40%,
+    transparent 58%);
+  border-radius: inherit;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+/* Shimmer sweep beam */
+.icon-btn::after, .nav-btn::after, .view-btn::after,
+.btn-primary::after, .btn-secondary::after,
+.sp-settings-link::after, .share-dismiss-btn::after,
+.import-btn-confirm::after {
+  content: '';
+  position: absolute;
+  top: -10%;
+  left: 0;
+  width: 44%;
+  height: 120%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255,255,255,0.38) 50%,
+    transparent 100%);
+  transform: translateX(-160%) skewX(-20deg);
+  mix-blend-mode: overlay;
+  animation: glass-sweep 5.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Stagger so buttons shimmer at different times */
+.nav-btn::after            { animation-delay: -1.0s; }
+.view-btn::after           { animation-delay: -2.1s; }
+.btn-primary::after        { animation-delay: -2.9s; }
+.btn-secondary::after      { animation-delay: -3.7s; }
+.sp-settings-link::after   { animation-delay: -0.5s; }
+.share-dismiss-btn::after  { animation-delay: -1.6s; }
+.import-btn-confirm::after { animation-delay: -4.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn::after, .nav-btn::after, .view-btn::after,
+  .btn-primary::after, .btn-secondary::after,
+  .sp-settings-link::after, .share-dismiss-btn::after,
+  .import-btn-confirm::after { animation: none; }
+}
+
 /* ── Week bar ────────────────────────────────────────────────── */
 #week-bar {
   display: flex;
@@ -145,6 +210,8 @@ body {
 }
 
 .view-btn {
+  position: relative;
+  overflow: hidden;
   flex: 1;
   padding: 7px 10px;
   border: 0.5px solid rgba(255,255,255,0.18);
@@ -228,9 +295,11 @@ body {
   text-overflow: ellipsis;
 }
 .import-btn-confirm {
-  background: var(--ios-blue);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1a96ff, var(--ios-blue));
+  border: 0.5px solid rgba(255,255,255,0.28);
   color: #fff;
-  border: none;
   border-radius: 50px;
   padding: 5px 13px;
   font-size: 0.78rem;
@@ -585,32 +654,40 @@ body {
 .form-actions { display: flex; gap: 8px; margin-top: 22px; justify-content: flex-end; }
 
 .btn-primary {
-  background: var(--ios-blue);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1a96ff 0%, var(--ios-blue) 100%);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 0.5px solid rgba(255,255,255,0.30);
   color: #fff;
-  border: none;
   border-radius: 50px;
   padding: 11px 24px;
   font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.14s, transform 0.1s;
+  transition: transform 0.12s, filter 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
-.btn-primary:active { opacity: 0.78; transform: scale(0.97); }
+.btn-primary:active { transform: scale(0.95); filter: brightness(0.86); }
 
 .btn-secondary {
-  background: rgba(118,118,128,0.14);
+  position: relative;
+  overflow: hidden;
+  background: rgba(118,118,128,0.16);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 0.5px solid rgba(255,255,255,0.22);
   color: #3c3c43;
-  border: none;
   border-radius: 50px;
   padding: 11px 18px;
   font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.14s;
+  transition: background 0.14s, transform 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
-.btn-secondary:active { background: rgba(118,118,128,0.24); }
+.btn-secondary:active { background: rgba(118,118,128,0.26); transform: scale(0.96); }
 
 /* ── Toggle switch (iOS style) ───────────────────────────────── */
 .settings-toggle-row {
@@ -715,12 +792,16 @@ body {
 
 /* ── SP Settings link ────────────────────────────────────────── */
 .sp-settings-link {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
   background: rgba(0,122,255,0.08);
-  border: 0.5px solid rgba(0,122,255,0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(0,122,255,0.22);
   border-radius: var(--radius-xs);
   padding: 11px 13px;
   font-size: 0.88rem;
@@ -890,7 +971,7 @@ body {
 .share-copy-inline:active { opacity: 0.45; }
 .share-hint { font-size: 0.73rem; color: #8e8e93; line-height: 1.45; text-align: center; padding: 0 20px 10px; margin: 0; }
 .share-footer { padding: 0 16px; }
-.share-dismiss-btn { width: 100%; background: #fff; border: none; border-radius: 14px; padding: 16px; font-size: 1rem; font-weight: 600; color: var(--ios-blue); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: opacity 0.14s; }
+.share-dismiss-btn { position: relative; overflow: hidden; width: 100%; background: rgba(255,255,255,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: none; border-radius: 14px; padding: 16px; font-size: 1rem; font-weight: 600; color: var(--ios-blue); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: opacity 0.14s, transform 0.12s; }
 .share-dismiss-btn:active { opacity: 0.6; }
 
 /* ════════════════════════════════════════════════════════════════

@@ -753,18 +753,21 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
       ? `<div class="day-nachrichten">${msgs.map(m => `<div class="nachricht-item">${escHtml(m)}</div>`).join('')}</div>`
       : '';
 
+    const checkSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`;
     const body = dayEntries.length
       ? dayEntries.map(renderEntry).join('')
-      : `<div class="no-change">Kein Ausfall</div>`;
+      : `<div class="no-change">${checkSvg} Kein Ausfall</div>`;
 
     // Collapse by default when nothing to show; always expand today
     const hasContent = dayEntries.length > 0 || msgs.length > 0;
     const collapsed = (hasContent || isToday) ? '' : ' collapsed';
 
-    // Small header chip: entry count or nachrichten dot
+    // Header chip: colored type dots + count, or nachrichten dot
     let chipHtml = '';
     if (dayEntries.length > 0) {
-      chipHtml = `<span class="day-count">${dayEntries.length}</span>`;
+      const types = [...new Set(dayEntries.map(e => e.typ))].filter(Boolean);
+      const dots = types.map(t => `<span class="type-dot type-dot-${t}" aria-hidden="true"></span>`).join('');
+      chipHtml = `<span class="day-chips">${dots}<span class="day-count">${dayEntries.length}</span></span>`;
     } else if (msgs.length > 0) {
       chipHtml = `<span class="day-msg-dot" aria-hidden="true"></span>`;
     }
@@ -786,21 +789,50 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
   }).join('');
 
   content.innerHTML = html || '<div class="loading">Keine Einträge gefunden.</div>';
+  requestAnimationFrame(scrollToToday);
 }
+
+function scrollToToday() {
+  if (weekOffset !== 0) return;
+  const card = document.querySelector('.day-card.today');
+  if (!card) return;
+  const stickyH = (document.getElementById('sticky-top')?.offsetHeight ?? 0) + 8;
+  const top = card.getBoundingClientRect().top + window.scrollY - stickyH;
+  window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+}
+
+const ENTRY_BADGE_ICONS = {
+  ausfall:
+    `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  vertretung:
+    `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>`,
+  raum:
+    `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
+};
 
 function renderEntry(e) {
   const typClass = e.typ === 'ausfall' ? 'ausfall'
     : e.typ === 'vertretung' ? 'vertretung'
     : e.typ === 'raum' ? 'raum' : '';
 
+  const icon = ENTRY_BADGE_ICONS[e.typ] || '';
   let badge = '';
-  if (e.typ === 'ausfall')        badge = '<span class="entry-badge badge-ausfall">Ausfall</span>';
-  else if (e.typ === 'vertretung') badge = '<span class="entry-badge badge-vertretung">Vertretung</span>';
-  else if (e.typ === 'raum')       badge = '<span class="entry-badge badge-raum">and.Raum</span>';
+  if (e.typ === 'ausfall')         badge = `<span class="entry-badge badge-ausfall">${icon} Ausfall</span>`;
+  else if (e.typ === 'vertretung') badge = `<span class="entry-badge badge-vertretung">${icon} Vertretung</span>`;
+  else if (e.typ === 'raum')       badge = `<span class="entry-badge badge-raum">${icon} and. Raum</span>`;
 
-  const fachDisplay = e.fach && e.fach !== '---' ? escHtml(e.fach) : '<em>entfällt</em>';
-  const origFach = e.stattFach && e.stattFach !== e.fach && e.stattFach !== '---'
-    ? ` <span class="entry-orig">statt ${escHtml(e.stattFach)}</span>` : '';
+  // Ausfall: show cancelled subject with strikethrough instead of "entfällt"
+  let fachDisplay, origFach = '';
+  if (e.typ === 'ausfall') {
+    const cancelled = e.stattFach && e.stattFach !== '---' ? e.stattFach : (e.fach && e.fach !== '---' ? e.fach : '');
+    fachDisplay = cancelled
+      ? `<span class="entry-fach-strike">${escHtml(cancelled)}</span>`
+      : '<em>entfällt</em>';
+  } else {
+    fachDisplay = e.fach && e.fach !== '---' ? escHtml(e.fach) : '<em>entfällt</em>';
+    origFach = e.stattFach && e.stattFach !== e.fach && e.stattFach !== '---'
+      ? ` <span class="entry-orig">statt ${escHtml(e.stattFach)}</span>` : '';
+  }
 
   const raumNew  = e.raum && e.raum !== '---' ? escHtml(e.raum) : '';
   const raumOrig = e.stattRaum && e.stattRaum !== '---' && e.stattRaum !== e.raum
@@ -816,8 +848,7 @@ function renderEntry(e) {
       <div class="entry-stunde">${escHtml(e.stunde || '')}</div>
       <div class="entry-details">
         <div class="entry-main">
-          <span class="entry-fach">${fachDisplay}</span>${origFach}
-          ${badge}
+          ${badge}<span class="entry-fach">${fachDisplay}</span>${origFach}
         </div>
         ${sub.length ? `<div class="entry-sub">${sub.join(' · ')}</div>` : ''}
         ${e.info ? `<div class="entry-info">${escHtml(e.info)}</div>` : ''}

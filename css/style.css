@@ -48,11 +48,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Header ──────────────────────────────────────────────────── */
-#header {
+/* ── Sticky top wrapper (header + week bar + view toggle) ────── */
+#sticky-top {
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+#header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -399,9 +403,14 @@ body {
 
 /* ── Day card ────────────────────────────────────────────────── */
 /* Today highlight */
+@keyframes today-bar-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
 .day-card.today {
   border-color: rgba(0,122,255,0.35);
   box-shadow: var(--shadow-card), 0 0 0 1px rgba(0,122,255,0.18);
+  scroll-margin-top: 120px;
 }
 .day-card.today::before {
   content: '';
@@ -409,6 +418,7 @@ body {
   height: 3px;
   background: linear-gradient(90deg, var(--ios-blue), #5ac8fa);
   border-radius: var(--radius) var(--radius) 0 0;
+  animation: today-bar-pulse 2.8s ease-in-out infinite;
 }
 .day-card.today .day-name {
   color: var(--ios-blue);
@@ -495,6 +505,11 @@ body {
   border-radius: 50%;
   flex-shrink: 0;
 }
+.day-chips { display: inline-flex; align-items: center; gap: 4px; }
+.type-dot  { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.type-dot-ausfall    { background: var(--ios-red); }
+.type-dot-vertretung { background: var(--ios-orange); }
+.type-dot-raum       { background: var(--ios-cyan); }
 
 /* Smooth collapse */
 .day-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1); }
@@ -516,11 +531,13 @@ body {
   font-style: italic;
 }
 .no-change {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   padding: 12px 16px;
   font-size: 0.82rem;
   color: var(--clr-success);
   font-weight: 500;
-  font-style: italic;
 }
 
 /* ── Nachrichten ─────────────────────────────────────────────── */
@@ -549,37 +566,51 @@ body {
 }
 .entry + .entry { border-top-color: rgba(0,0,0,0.05); }
 
-.entry.ausfall    { border-left-color: var(--ios-red);    background: rgba(255,59,48,0.05);  }
-.entry.vertretung { border-left-color: var(--ios-orange); background: rgba(255,149,0,0.05);  }
-.entry.raum       { border-left-color: var(--ios-cyan);   background: rgba(50,173,230,0.05); }
+.entry.ausfall    { border-left-width: 4px; border-left-color: var(--ios-red);    background: rgba(255,59,48,0.10);  }
+.entry.vertretung { border-left-width: 4px; border-left-color: var(--ios-orange); background: rgba(255,149,0,0.10);  }
+.entry.raum       { border-left-width: 4px; border-left-color: var(--ios-cyan);   background: rgba(50,173,230,0.10); }
 
 .entry-stunde {
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: 0.84rem;
+  font-weight: 800;
   color: var(--clr-muted);
   text-align: center;
   padding-top: 1px;
   font-variant-numeric: tabular-nums;
 }
-.entry-details { display: flex; flex-direction: column; gap: 2px; }
-.entry-main    { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.entry.ausfall    .entry-stunde { color: var(--ios-red); }
+.entry.vertretung .entry-stunde { color: var(--ios-orange); }
+.entry.raum       .entry-stunde { color: var(--ios-cyan); }
+
+.entry-details { display: flex; flex-direction: column; gap: 3px; }
+.entry-main    { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 
 .entry-fach {
   font-weight: 600;
   font-size: 0.95rem;
   color: var(--clr-text);
 }
+.entry-fach-strike {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--clr-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
 .entry-badge {
-  font-size: 0.63rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  padding: 2px 7px;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
   border-radius: 50px;
 }
-.badge-ausfall    { background: rgba(255,59,48,0.12);   color: #d70015;   }
-.badge-vertretung { background: rgba(255,149,0,0.14);   color: #b36200;   }
-.badge-raum       { background: rgba(50,173,230,0.14);  color: #006aab;   }
+.badge-ausfall    { background: rgba(255,59,48,0.15);   color: #c8000e; }
+.badge-vertretung { background: rgba(255,149,0,0.16);   color: #9e5700; }
+.badge-raum       { background: rgba(50,173,230,0.16);  color: #005f96; }
 
 .entry-sub  { font-size: 0.76rem; color: var(--clr-muted); display: flex; gap: 8px; flex-wrap: wrap; }
 .entry-orig { font-size: 0.72rem; color: var(--clr-muted); opacity: 0.8; }
@@ -1012,12 +1043,13 @@ html[data-dark] .day-nachrichten        { background: rgba(255,204,0,0.08); bord
 html[data-dark] .nachricht-item         { color: #ffd60a; }
 html[data-dark] .entry                  { border-top-color: rgba(255,255,255,0.05); }
 html[data-dark] .entry + .entry         { border-top-color: rgba(255,255,255,0.06); }
-html[data-dark] .entry.ausfall          { background: rgba(255,69,58,0.15); }
-html[data-dark] .entry.vertretung       { background: rgba(255,159,10,0.14); }
-html[data-dark] .entry.raum             { background: rgba(100,210,255,0.1); }
-html[data-dark] .badge-ausfall          { background: rgba(255,69,58,0.2);  color: var(--ios-red); }
-html[data-dark] .badge-vertretung       { background: rgba(255,159,10,0.2); color: var(--ios-orange); }
-html[data-dark] .badge-raum             { background: rgba(100,210,255,0.2); color: var(--ios-cyan); }
+html[data-dark] .entry.ausfall          { background: rgba(255,69,58,0.18); }
+html[data-dark] .entry.vertretung       { background: rgba(255,159,10,0.17); }
+html[data-dark] .entry.raum             { background: rgba(100,210,255,0.13); }
+html[data-dark] .badge-ausfall          { background: rgba(255,69,58,0.22);  color: var(--ios-red); }
+html[data-dark] .badge-vertretung       { background: rgba(255,159,10,0.22); color: var(--ios-orange); }
+html[data-dark] .badge-raum             { background: rgba(100,210,255,0.22); color: var(--ios-cyan); }
+html[data-dark] .entry-fach-strike      { color: rgba(235,235,245,0.38); }
 html[data-dark] .entry-info             { color: var(--ios-blue); }
 html[data-dark] .error-banner           { background: rgba(255,69,58,0.15); border-color: rgba(255,69,58,0.3); color: #ff8a80; }
 

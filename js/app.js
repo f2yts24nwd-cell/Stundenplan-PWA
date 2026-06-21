@@ -5,6 +5,7 @@ const SETTINGS_KEY     = 'vplan_settings';
 const STUNDENPLAN_KEY  = 'vplan_stundenplan';
 const SNAPSHOT_KEY     = 'vplan_snapshot';
 const LAST_UPDATED_KEY = 'vplan_last_updated';
+const HISTORY_KEY      = 'vplan_history';
 const PROXIES = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const SP_PERIODS = 10;
@@ -12,12 +13,16 @@ const DAY_NAMES = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'F
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
 const WEEKDAY_LONG  = ['montag','dienstag','mittwoch','donnerstag','freitag'];
 const WEEKDAY_SHORT = ['mo','di','mi','do','fr'];
+const MONTH_SHORT = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+const MONTH_LONG  = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 
 // ── State ──────────────────────────────────────────────────────────────────
 let weekOffset = 0;
 let lastEntries = null;
 let refreshTimer = null;
 let currentView = 'tage';
+let analyticsRange = 'jahr';
+let analyticsAnchor = new Date();
 
 // ── Settings ───────────────────────────────────────────────────────────────
 function loadSettings() {
@@ -941,6 +946,237 @@ function setLastUpdated(date) {
   renderLastUpdated(date);
 }
 
+// ── Persistent history log (Ausfall/Vertretung/Raumwechsel über Zeit) ──────
+function loadHistory() {
+  try {
+    const h = JSON.parse(localStorage.getItem(HISTORY_KEY) || 'null');
+    return (h && h.weeks && h.days) ? h : { weeks: {}, days: {} };
+  } catch { return { weeks: {}, days: {} }; }
+}
+function saveHistory(h) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)); } catch {}
+}
+
+function entryPeriods(e) {
+  const n = expandStundenRange(e.stunde).length;
+  return n > 0 ? n : 1;
+}
+
+// Subject to attribute the entry to: for Ausfall the cancelled (original) subject, otherwise the new one.
+function entrySubject(e) {
+  if (e.typ === 'ausfall') {
+    return (e.stattFach && e.stattFach !== '---') ? e.stattFach : (e.fach && e.fach !== '---' ? e.fach : '');
+  }
+  return (e.fach && e.fach !== '---') ? e.fach : (e.stattFach && e.stattFach !== '---' ? e.stattFach : '');
+}
+
+// Remove history entries older than ~2 years to keep localStorage small.
+function pruneHistory(history) {
+  const cutoffIso = isoDateLocal(addDays(new Date(), -730));
+  for (const key of Object.keys(history.days)) {
+    if (key.slice(key.lastIndexOf('_') + 1) < cutoffIso) delete history.days[key];
+  }
+  for (const key of Object.keys(history.weeks)) {
+    if (key.slice(key.lastIndexOf('_') + 1) < cutoffIso) delete history.weeks[key];
+  }
+}
+
+// Records the published week's entries, overwriting any prior record for the
+// same days so repeated 5-minute refreshes never double-count hours.
+function recordHistory(entries, klasse, weekIsos) {
+  const history = loadHistory();
+  const kl = klasse.toLowerCase();
+  history.weeks[`${kl}_${weekIsos[0]}`] = true;
+  for (const iso of weekIsos) {
+    const dayEntries = entries.filter(e => e.datumNorm === iso &&
+      (e.typ === 'ausfall' || e.typ === 'vertretung' || e.typ === 'raum'));
+    history.days[`${kl}_${iso}`] = dayEntries.map(e => ({ t: e.typ, f: entrySubject(e), p: entryPeriods(e) }));
+  }
+  pruneHistory(history);
+  saveHistory(history);
+}
+
+// ── Analytics aggregation ───────────────────────────────────────────────────
+// Sums hours per category + per-subject Ausfall hours + tracked-weeks count
+// for all days/weeks whose ISO date passes filterFn.
+function aggregateHistory(klasse, filterFn) {
+  const history = loadHistory();
+  const kl = klasse.toLowerCase();
+  const totals = { ausfall: 0, vertretung: 0, raum: 0 };
+  const perSubject = {};
+  for (const key of Object.keys(history.days)) {
+    if (!key.startsWith(kl + '_')) continue;
+    const iso = key.slice(kl.length + 1);
+    if (!filterFn(iso)) continue;
+    for (const rec of history.days[key]) {
+      totals[rec.t] = (totals[rec.t] || 0) + rec.p;
+      if (rec.t === 'ausfall' && rec.f) perSubject[rec.f] = (perSubject[rec.f] || 0) + rec.p;
+    }
+  }
+  let weeks = 0;
+  for (const key of Object.keys(history.weeks)) {
+    if (!key.startsWith(kl + '_')) continue;
+    if (filterFn(key.slice(kl.length + 1))) weeks++;
+  }
+  return { totals, perSubject, weeks };
+}
+
+function monthlyChartData(klasse, year) {
+  const history = loadHistory();
+  const kl = klasse.toLowerCase();
+  const months = Array.from({ length: 12 }, () => ({ ausfall: 0, vertretung: 0, raum: 0 }));
+  for (const key of Object.keys(history.days)) {
+    if (!key.startsWith(kl + '_')) continue;
+    const iso = key.slice(kl.length + 1);
+    if (iso.slice(0, 4) !== String(year)) continue;
+    const m = parseInt(iso.slice(5, 7), 10) - 1;
+    for (const rec of history.days[key]) months[m][rec.t] = (months[m][rec.t] || 0) + rec.p;
+  }
+  return months.map((d, i) => ({ label: MONTH_SHORT[i], ...d }));
+}
+
+function weeklyChartData(klasse, year, month) {
+  const history = loadHistory();
+  const kl = klasse.toLowerCase();
+  const weeks = {};
+  for (const key of Object.keys(history.days)) {
+    if (!key.startsWith(kl + '_')) continue;
+    const iso = key.slice(kl.length + 1);
+    if (iso.slice(0, 4) !== String(year) || parseInt(iso.slice(5, 7), 10) !== month) continue;
+    const monday = isoDateLocal(getMondayOf(new Date(iso + 'T00:00:00')));
+    if (!weeks[monday]) weeks[monday] = { ausfall: 0, vertretung: 0, raum: 0 };
+    for (const rec of history.days[key]) weeks[monday][rec.t] = (weeks[monday][rec.t] || 0) + rec.p;
+  }
+  return Object.keys(weeks).sort().map(monday => ({
+    label: `KW${getISOWeekNumber(new Date(monday + 'T00:00:00'))}`,
+    ...weeks[monday],
+  }));
+}
+
+// Weekly hours per subject, read from the manually entered Stundenplan
+// (cell format "Fach/Lehrer/Raum") — used as the KPI's annual baseline.
+function weeklySubjectHours() {
+  const sp = loadStundenplan();
+  const out = {};
+  if (!sp || !sp.cells) return out;
+  for (const row of sp.cells) {
+    for (const cell of row) {
+      const fach = (cell || '').split('/')[0].trim();
+      if (fach) out[fach] = (out[fach] || 0) + 1;
+    }
+  }
+  return out;
+}
+function weeklyTotalHours() {
+  return Object.values(weeklySubjectHours()).reduce((a, b) => a + b, 0);
+}
+
+function computeSubjectKPIs(perSubjectAusfall, weeks) {
+  const weeklyHours = weeklySubjectHours();
+  const subjects = new Set([...Object.keys(weeklyHours), ...Object.keys(perSubjectAusfall)]);
+  const rows = [...subjects].map(subj => {
+    const ist = perSubjectAusfall[subj] || 0;
+    const soll = (weeklyHours[subj] || 0) * weeks;
+    const pct = soll > 0 ? Math.min(100, (ist / soll) * 100) : null;
+    return { subj, ist, soll, pct };
+  }).filter(r => r.ist > 0 || r.soll > 0);
+  rows.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.ist - a.ist);
+  return rows;
+}
+
+function overallAusfallQuotient(totals, weeks) {
+  const soll = weeklyTotalHours() * weeks;
+  if (soll <= 0) return { pct: null, soll: 0 };
+  return { pct: Math.min(100, (totals.ausfall / soll) * 100), soll };
+}
+
+// ── Analytics rendering ──────────────────────────────────────────────────
+function renderBarChart(items) {
+  const max = Math.max(1, ...items.map(it => it.ausfall + it.vertretung + it.raum));
+  return `<div class="chart-bars">${items.map(it => {
+    const total = it.ausfall + it.vertretung + it.raum;
+    const h = v => v > 0 ? Math.max(3, (v / max) * 100) : 0;
+    return `
+      <div class="chart-col">
+        <div class="chart-bar-stack" title="${escHtml(it.label)}: ${total} Std.">
+          ${it.ausfall    ? `<div class="chart-seg seg-ausfall"    style="height:${h(it.ausfall)}%"></div>`    : ''}
+          ${it.vertretung ? `<div class="chart-seg seg-vertretung" style="height:${h(it.vertretung)}%"></div>` : ''}
+          ${it.raum       ? `<div class="chart-seg seg-raum"       style="height:${h(it.raum)}%"></div>`       : ''}
+        </div>
+        <div class="chart-col-label">${escHtml(it.label)}</div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+function renderSummaryCards(totals, quotient) {
+  return `
+    <div class="analytics-stats">
+      <div class="stat-card stat-ausfall"><div class="stat-num">${totals.ausfall}</div><div class="stat-label">Ausfall Std.</div></div>
+      <div class="stat-card stat-vertretung"><div class="stat-num">${totals.vertretung}</div><div class="stat-label">Vertretung Std.</div></div>
+      <div class="stat-card stat-raum"><div class="stat-num">${totals.raum}</div><div class="stat-label">Raumwechsel Std.</div></div>
+    </div>
+    <div class="quotient-card">
+      <div class="quotient-num">${quotient.pct !== null ? quotient.pct.toFixed(1) + '%' : '–'}</div>
+      <div class="quotient-label">${quotient.pct !== null
+        ? `Ausfallquotient · ${totals.ausfall} von ${quotient.soll} Soll-Std.`
+        : 'Ausfallquotient – Stundenplan hinterlegen für Berechnung'}</div>
+    </div>`;
+}
+
+function renderKpiTable(rows) {
+  if (!rows.length) return `<div class="analytics-empty">Noch keine Daten für diesen Zeitraum.</div>`;
+  return rows.map(r => `
+    <div class="kpi-row">
+      <div class="kpi-row-top">
+        <span class="kpi-subj">${escHtml(r.subj)}</span>
+        <span class="kpi-val">${r.pct !== null ? r.pct.toFixed(0) + '%' : '–'}</span>
+      </div>
+      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:${r.pct !== null ? r.pct : 0}%"></div></div>
+      <div class="kpi-row-sub">${r.ist} ${r.soll > 0 ? `von ${r.soll} Soll-Std. ausgefallen` : 'Std. ausgefallen (nicht im Stundenplan)'}</div>
+    </div>`).join('');
+}
+
+function renderAnalytics() {
+  const settings = loadSettings();
+  const klasse = settings.klasse;
+  const body = document.getElementById('analytics-body');
+  if (!klasse) {
+    document.getElementById('analytics-period-label').textContent = '–';
+    body.innerHTML = `<div class="analytics-empty">Bitte zuerst die Klasse in den Einstellungen hinterlegen.</div>`;
+    return;
+  }
+
+  const year = analyticsAnchor.getFullYear();
+  const month = analyticsAnchor.getMonth() + 1;
+
+  let chartData, sectionTitle, label, filterFn;
+  if (analyticsRange === 'jahr') {
+    label = String(year);
+    sectionTitle = 'Pro Monat';
+    chartData = monthlyChartData(klasse, year);
+    filterFn = iso => iso.slice(0, 4) === String(year);
+  } else {
+    label = `${MONTH_LONG[month - 1]} ${year}`;
+    sectionTitle = 'Pro Woche';
+    chartData = weeklyChartData(klasse, year, month);
+    const mk = `${year}-${String(month).padStart(2, '0')}`;
+    filterFn = iso => iso.slice(0, 7) === mk;
+  }
+  document.getElementById('analytics-period-label').textContent = label;
+
+  const { totals, perSubject, weeks } = aggregateHistory(klasse, filterFn);
+  const quotient = overallAusfallQuotient(totals, weeks);
+  const kpiRows = computeSubjectKPIs(perSubject, weeks);
+  const hasChartData = chartData.some(d => d.ausfall || d.vertretung || d.raum);
+
+  body.innerHTML = `
+    ${renderSummaryCards(totals, quotient)}
+    <div class="analytics-section-title">${sectionTitle}</div>
+    <div class="chart-card">${hasChartData ? renderBarChart(chartData) : '<div class="analytics-empty">Keine Daten für diesen Zeitraum.</div>'}</div>
+    <div class="analytics-section-title">Fächer-KPI (Ausfallquote)</div>
+    <div class="kpi-list">${renderKpiTable(kpiRows)}</div>`;
+}
+
 async function fetchAndRender() {
   const settings = loadSettings();
   if (!settingsAreComplete(settings)) {
@@ -971,6 +1207,13 @@ async function fetchAndRender() {
     if (prevSnap !== null) {
       const changed = detectChangedDates(prevSnap, newSnap);
       if (changed.length > 0) showChangesBanner(changed);
+    }
+
+    // Persistent analytics history (only for confirmed-published weeks)
+    if (hasData) {
+      const monday = getMondayOf(targetDate);
+      const weekIsos = [0, 1, 2, 3, 4].map(i => isoDateLocal(addDays(monday, i)));
+      recordHistory(entries, settings.klasse, weekIsos);
     }
   } catch (err) {
     showError('Fehler beim Laden: ' + err.message);
@@ -1037,6 +1280,35 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('help-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) document.getElementById('help-overlay').classList.add('hidden');
+  });
+
+  // Analytics dashboard
+  document.getElementById('analytics-btn').addEventListener('click', () => {
+    document.getElementById('analytics-overlay').classList.remove('hidden');
+    renderAnalytics();
+  });
+  document.getElementById('analytics-close-btn').addEventListener('click', () => {
+    document.getElementById('analytics-overlay').classList.add('hidden');
+  });
+  document.getElementById('analytics-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) document.getElementById('analytics-overlay').classList.add('hidden');
+  });
+  document.querySelectorAll('.analytics-range-toggle .view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      analyticsRange = btn.dataset.range;
+      document.querySelectorAll('.analytics-range-toggle .view-btn').forEach(b => b.classList.toggle('active', b === btn));
+      renderAnalytics();
+    });
+  });
+  document.getElementById('analytics-prev-btn').addEventListener('click', () => {
+    if (analyticsRange === 'jahr') analyticsAnchor.setFullYear(analyticsAnchor.getFullYear() - 1);
+    else analyticsAnchor.setMonth(analyticsAnchor.getMonth() - 1);
+    renderAnalytics();
+  });
+  document.getElementById('analytics-next-btn').addEventListener('click', () => {
+    if (analyticsRange === 'jahr') analyticsAnchor.setFullYear(analyticsAnchor.getFullYear() + 1);
+    else analyticsAnchor.setMonth(analyticsAnchor.getMonth() + 1);
+    renderAnalytics();
   });
 
   document.getElementById('reset-btn').addEventListener('click', async () => {

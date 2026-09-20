@@ -1453,7 +1453,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r => r.unregister()));
     }
-    location.reload();
+    // Cache-busting query parameter forces Safari to bypass its HTTP cache
+    const base = location.href.split('?')[0];
+    location.replace(base + '?reload=' + Date.now());
   });
 
   document.getElementById('settings-btn').addEventListener('click', openSettings);

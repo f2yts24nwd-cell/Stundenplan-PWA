@@ -735,6 +735,14 @@ body::after {
 
 .form-actions { display: flex; gap: 8px; margin-top: 22px; justify-content: flex-end; }
 
+/* sp-overlay has 4 buttons — 2×2 grid so nothing overflows */
+.sp-overlay-card .form-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  justify-content: unset;
+}
+
 .btn-primary {
   position: relative;
   overflow: hidden;
@@ -1393,10 +1401,12 @@ html[data-dark] .pwa-install-divider::after { background: rgba(255,255,255,0.1);
 html[data-dark] .pwa-import-success-text { color: rgba(255,255,255,0.9); }
 
 /* ── Settings: paste a share URL ────────────────────────────── */
-.sp-link-import-label {
+/* Use same specificity/element type as #settings-form label so cascade matches */
+label.sp-link-import-label {
+  display: block;
   font-size: 0.69rem; font-weight: 600;
   color: rgba(60,60,67,0.55); text-transform: uppercase;
-  letter-spacing: 0.06em; margin: 14px 0 6px;
+  letter-spacing: 0.06em; margin-bottom: 6px;
 }
 .sp-link-import-row { display: flex; gap: 8px; align-items: stretch; }
 .sp-link-import-row input {
@@ -1410,9 +1420,15 @@ html[data-dark] .pwa-import-success-text { color: rgba(255,255,255,0.9); }
   box-shadow: 0 0 0 3px rgba(0,122,255,0.22);
 }
 .sp-link-import-row .btn-primary { padding: 11px 16px; font-size: 0.84rem; white-space: nowrap; }
-html[data-dark] .sp-link-import-label { color: rgba(235,235,245,0.48); }
-html[data-dark] .sp-link-import-row input { background: rgba(118,118,128,0.22); color: rgba(255,255,255,0.9); }
-html[data-dark] .sp-link-import-row input:focus { background: rgba(10,132,255,0.12); box-shadow: 0 0 0 3px rgba(10,132,255,0.28); }
+html[data-dark] label.sp-link-import-label { color: rgba(235,235,245,0.48); }
+html[data-dark] .sp-link-import-row input {
+  background: rgba(118,118,128,0.22);
+  color: rgba(255,255,255,0.9);
+}
+html[data-dark] .sp-link-import-row input:focus {
+  background: rgba(10,132,255,0.12);
+  box-shadow: 0 0 0 3px rgba(10,132,255,0.28);
+}
 
 /* ── Debug details (Diagnose) ────────────────────────────────── */
 .debug-details {

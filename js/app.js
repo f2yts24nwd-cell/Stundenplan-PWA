@@ -178,21 +178,36 @@ async function fetchThroughProxy(url, hdrs, debugLines) {
 }
 
 // Single fetch through an already-known proxy with charset-aware decoding.
+// Handles both standard CORS proxies (append encoded URL) and the custom
+// Cloudflare Worker (?url=…&auth=… query params).
 async function proxyGet(proxyBase, url, hdrs) {
+  const settings = loadSettings();
+  const customProxy = settings.proxy ? settings.proxy.replace(/\/$/, '') : '';
+  const isWorker = customProxy && proxyBase === customProxy;
+
   try {
-    const r = await fetch(proxyBase + encodeURIComponent(url), { headers: hdrs });
+    let r;
+    if (isWorker) {
+      const auth = (hdrs || {})['Authorization'];
+      const b64 = auth ? auth.replace(/^Basic\s+/i, '') : '';
+      const workerUrl = `${customProxy}?url=${encodeURIComponent(url)}${b64 ? '&auth=' + encodeURIComponent(b64) : ''}`;
+      r = await fetch(workerUrl);
+    } else {
+      r = await fetch(proxyBase + encodeURIComponent(url), { headers: hdrs });
+    }
     if (r.ok) {
       const buf = await r.arrayBuffer();
       const text = decodeWithCharset(buf, r.headers.get('content-type') || '');
       if (text.length > 0) return text;
     }
-    // Fallback: credentials in URL
-    const cu = urlWithCreds(url, hdrs);
-    if (cu) {
-      const r2 = await fetch(proxyBase + encodeURIComponent(cu), {});
-      if (r2.ok) {
-        const buf2 = await r2.arrayBuffer();
-        return decodeWithCharset(buf2, r2.headers.get('content-type') || '');
+    if (!isWorker) {
+      const cu = urlWithCreds(url, hdrs);
+      if (cu) {
+        const r2 = await fetch(proxyBase + encodeURIComponent(cu), {});
+        if (r2.ok) {
+          const buf2 = await r2.arrayBuffer();
+          return decodeWithCharset(buf2, r2.headers.get('content-type') || '');
+        }
       }
     }
     return '';
@@ -221,24 +236,48 @@ function parseNavbarMeta(navDoc, monday, klasse) {
   }
 
   const kw = getISOWeekNumber(monday);
-  const yyyyww = monday.getFullYear() * 100 + kw; // e.g. 202638
+  const yyyyww = monday.getFullYear() * 100 + kw;
+  // Monday as YYYYMMDD integer for date-based week selectors (e.g. 20260921)
+  const mondayYMD = monday.getFullYear() * 10000 + (monday.getMonth() + 1) * 100 + monday.getDate();
+
+  // Returns true if a numeric option value looks like a date within ±21 days of monday
+  function isYMDNearMonday(v) {
+    if (v < 20000101 || v > 29991231) return false;
+    const year = Math.floor(v / 10000);
+    const month = Math.floor((v % 10000) / 100) - 1;
+    const day = v % 100;
+    const d = new Date(year, month, day);
+    const diff = (d - monday) / 86400000;
+    return diff >= -21 && diff <= 21;
+  }
+
+  // Returns true if a numeric option value is the exact Monday of the target week
+  function isYMDThisWeek(v) {
+    if (v < 20000101 || v > 29991231) return false;
+    const year = Math.floor(v / 10000);
+    const month = Math.floor((v % 10000) / 100) - 1;
+    const day = v % 100;
+    const d = new Date(year, month, day);
+    const diff = (d - monday) / 86400000;
+    return diff >= 0 && diff <= 6;
+  }
 
   for (const sel of navDoc.querySelectorAll('select')) {
     const opts = [...sel.options];
     const numOpts = opts.filter(o => /^\d+$/.test(o.value.trim()));
     if (!numOpts.length) continue;
 
-    // Identify the week selector: any value matches ISO-KW or YYYYWW format,
-    // or the select name contains "week"/"kw".
     const isWeekSel = numOpts.some(o => {
       const v = parseInt(o.value);
-      return v === kw || v === kw - 1 || v === yyyyww || v === yyyyww - 1;
-    }) || (sel.name || '').toLowerCase().match(/week|kw|woche/);
+      return v === kw || v === kw - 1 || v === yyyyww || v === yyyyww - 1 || isYMDNearMonday(v);
+    }) || (sel.name || '').toLowerCase().match(/week|kw|woche|datum|date|kalender/);
 
     if (isWeekSel) {
       meta.availableWeeks = numOpts.map(o => o.value);
-      const match = numOpts.find(o => { const v = parseInt(o.value); return v === kw || v === yyyyww; });
-      // Fallback: use the last (most recent) available week if target not listed
+      const match = numOpts.find(o => {
+        const v = parseInt(o.value);
+        return v === kw || v === yyyyww || isYMDThisWeek(v);
+      });
       meta.weekValue = match ? match.value : numOpts[numOpts.length - 1]?.value || '';
     }
     if ((sel.name || '').toLowerCase() === 'type' && opts.length > 0) {
@@ -291,6 +330,8 @@ async function fetchPlan(settings, targetDate) {
           const navDoc = new DOMParser().parseFromString(navHtml, 'text/html');
           nav = parseNavbarMeta(navDoc, monday, settings.klasse);
           debugLines.push(`Navbar: KW=${nav.weekValue || '(nicht gefunden)'}, Type="${nav.typeCode}", ClassIdx=${nav.classIdx}, Wochen=[${nav.availableWeeks.slice(0,6).join(',')}${nav.availableWeeks.length > 6 ? '…' : ''}]`);
+        } else {
+          debugLines.push(`Navbar: leer – proxyGet fehlgeschlagen`);
         }
       } catch (e) {
         debugLines.push(`Navbar-Fehler: ${e.message}`);

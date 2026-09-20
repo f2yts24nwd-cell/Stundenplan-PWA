@@ -148,12 +148,25 @@ function parseNavbarMeta(navDoc, monday, klasse) {
   }
 
   const kw = getISOWeekNumber(monday);
+  const yyyyww = monday.getFullYear() * 100 + kw; // e.g. 202638
+
   for (const sel of navDoc.querySelectorAll('select')) {
     const opts = [...sel.options];
-    if (opts.some(o => parseInt(o.value) === kw || parseInt(o.value) === kw - 1)) {
-      meta.availableWeeks = opts.map(o => o.value).filter(v => /^\d+$/.test(v));
-      const match = opts.find(o => parseInt(o.value) === kw);
-      meta.weekValue = match ? match.value : '';
+    const numOpts = opts.filter(o => /^\d+$/.test(o.value.trim()));
+    if (!numOpts.length) continue;
+
+    // Identify the week selector: any value matches ISO-KW or YYYYWW format,
+    // or the select name contains "week"/"kw".
+    const isWeekSel = numOpts.some(o => {
+      const v = parseInt(o.value);
+      return v === kw || v === kw - 1 || v === yyyyww || v === yyyyww - 1;
+    }) || (sel.name || '').toLowerCase().match(/week|kw|woche/);
+
+    if (isWeekSel) {
+      meta.availableWeeks = numOpts.map(o => o.value);
+      const match = numOpts.find(o => { const v = parseInt(o.value); return v === kw || v === yyyyww; });
+      // Fallback: use the last (most recent) available week if target not listed
+      meta.weekValue = match ? match.value : numOpts[numOpts.length - 1]?.value || '';
     }
     if ((sel.name || '').toLowerCase() === 'type' && opts.length > 0) {
       meta.typeCode = opts[0].value;
@@ -204,7 +217,7 @@ async function fetchPlan(settings, targetDate) {
         if (navHtml) {
           const navDoc = new DOMParser().parseFromString(navHtml, 'text/html');
           nav = parseNavbarMeta(navDoc, monday, settings.klasse);
-          debugLines.push(`Navbar: KW=${nav.weekValue}, Type="${nav.typeCode}", ClassIdx=${nav.classIdx}`);
+          debugLines.push(`Navbar: KW=${nav.weekValue || '(nicht gefunden)'}, Type="${nav.typeCode}", ClassIdx=${nav.classIdx}, Wochen=[${nav.availableWeeks.slice(0,6).join(',')}${nav.availableWeeks.length > 6 ? '…' : ''}]`);
         }
       } catch (e) {
         debugLines.push(`Navbar-Fehler: ${e.message}`);
@@ -728,8 +741,11 @@ function render(entries, targetDate, debug, hasData, nachrichten) {
 
   // Week not published: no real data tables found at all
   if (!hasData) {
+    const diagHtml = debug
+      ? `<details class="debug-details"><summary>Diagnose anzeigen</summary><pre class="debug-pre">${escHtml(debug)}</pre></details>`
+      : '';
     content.innerHTML =
-      `<div class="no-data-card">Vertretungsplan für diese Woche noch nicht veröffentlicht.</div>`;
+      `<div class="no-data-card">Vertretungsplan für diese Woche noch nicht veröffentlicht.</div>${diagHtml}`;
     return;
   }
 

@@ -1472,6 +1472,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('sp-close-btn').addEventListener('click', closeStundenplanEditor);
   document.getElementById('sp-cancel-btn').addEventListener('click', closeStundenplanEditor);
+  document.getElementById('sp-delete-btn').addEventListener('click', () => {
+    if (!confirm('Stundenplan wirklich löschen?')) return;
+    localStorage.removeItem(STUNDENPLAN_KEY);
+    closeStundenplanEditor();
+    updateViewToggleVisibility();
+    if (currentView === 'woche') { currentView = 'tage'; renderViewToggle(); }
+    fetchAndRender();
+  });
   document.getElementById('sp-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('sp-overlay')) closeStundenplanEditor();
   });

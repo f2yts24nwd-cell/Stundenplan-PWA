@@ -702,6 +702,23 @@ body {
 }
 .btn-primary:active { transform: scale(0.95); filter: brightness(0.86); }
 
+.btn-danger {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,59,48,0.13);
+  border: 0.5px solid rgba(255,59,48,0.35);
+  color: #d92b1f;
+  border-radius: 50px;
+  padding: 11px 18px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s, transform 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-danger:active { transform: scale(0.95); background: rgba(255,59,48,0.22); }
+html[data-dark] .btn-danger { color: #ff6b62; background: rgba(255,59,48,0.18); border-color: rgba(255,59,48,0.3); }
+
 .btn-secondary {
   position: relative;
   overflow: hidden;

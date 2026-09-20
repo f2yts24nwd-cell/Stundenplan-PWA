@@ -1,51 +1,99 @@
 /* ══════════════════════════════════════════════════════════════
-   LMG Vertretungsplan — iOS 19 Liquid Glass
+   LMG Vertretungsplan — iOS 27 Aurora Crystal
+   Optimiert für iPhone 17 · iPhone 17 Pro
    ══════════════════════════════════════════════════════════════ */
+
+/* ── Aurora background animation ────────────────────────────── */
+@keyframes aurora-a {
+  0%,100% { transform: translate(0,0) scale(1); opacity: 0.9; }
+  33%      { transform: translate(4%,3%) scale(1.06); opacity: 0.7; }
+  66%      { transform: translate(-3%,-2%) scale(0.96); opacity: 1; }
+}
+@keyframes aurora-b {
+  0%,100% { transform: translate(0,0) scale(1); opacity: 0.8; }
+  40%      { transform: translate(-5%,4%) scale(1.08); opacity: 0.6; }
+  70%      { transform: translate(3%,-3%) scale(0.94); opacity: 0.9; }
+}
+@keyframes aurora-c {
+  0%,100% { transform: translate(0,0) scale(1); opacity: 0.6; }
+  50%      { transform: translate(2%,-5%) scale(1.1); opacity: 0.9; }
+}
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ── Design tokens ───────────────────────────────────────────── */
 :root {
-  --ios-blue:    #007aff;
-  --ios-red:     #ff3b30;
-  --ios-orange:  #ff9500;
-  --ios-cyan:    #32ade6;
-  --ios-green:   #34c759;
+  --ios-blue:    #0a84ff;
+  --ios-red:     #ff453a;
+  --ios-orange:  #ff9f0a;
+  --ios-cyan:    #5ac8fa;
+  --ios-green:   #30d158;
+  --ios-indigo:  #5e5ce6;
+  --ios-pink:    #ff375f;
 
   --clr-ausfall:    var(--ios-red);
   --clr-vertretung: var(--ios-orange);
   --clr-raum:       var(--ios-cyan);
-  --clr-text:       #1c1c1e;
-  --clr-muted:      rgba(60,60,67,0.55);
+  --clr-text:       rgba(255,255,255,0.92);
+  --clr-muted:      rgba(235,235,245,0.48);
   --clr-success:    var(--ios-green);
 
-  --glass-card:        rgba(255,255,255,0.93);
-  --glass-card-border: rgba(255,255,255,0.72);
-  --glass-ui:          rgba(255,255,255,0.16);
-  --glass-ui-border:   rgba(255,255,255,0.28);
+  /* Crystalline surfaces */
+  --glass-card:        rgba(255,255,255,0.055);
+  --glass-card-border: rgba(255,255,255,0.1);
+  --glass-ui:          rgba(255,255,255,0.1);
+  --glass-ui-border:   rgba(255,255,255,0.18);
 
-  --shadow-card: 0 2px 14px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.06);
-  --shadow-lg:   0 24px 64px rgba(0,0,0,0.26), 0 8px 24px rgba(0,0,0,0.14);
+  /* Entry glow colors */
+  --glow-ausfall:    rgba(255,69,58,0.22);
+  --glow-vertretung: rgba(255,159,10,0.20);
+  --glow-raum:       rgba(90,200,250,0.18);
 
-  --radius:    20px;
-  --radius-sm: 14px;
-  --radius-xs: 10px;
+  --shadow-card: 0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3);
+  --shadow-lg:   0 32px 80px rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.4);
+
+  --radius:    22px;
+  --radius-sm: 16px;
+  --radius-xs: 12px;
 }
 
-/* ── Background: vivid mesh gradient ────────────────────────── */
+/* ── Background: deep space + animated aurora orbs ──────────── */
+html { background: #010308; }
 body {
   min-height: 100dvh;
-  background:
-    radial-gradient(ellipse 65% 50% at 10%  0%,   rgba(100,88,255,0.52) 0%, transparent 52%),
-    radial-gradient(ellipse 50% 45% at 90% 108%,   rgba(208,64,255,0.44) 0%, transparent 52%),
-    radial-gradient(ellipse 45% 50% at 55%  44%,   rgba(0,160,255,0.18)  0%, transparent 62%),
-    radial-gradient(ellipse 55% 35% at 20%  95%,   rgba(0,220,185,0.18)  0%, transparent 52%),
-    #07091a;
-  background-attachment: fixed;
+  background: transparent;
   font-family: -apple-system, 'SF Pro Text', BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 16px;
   color: var(--clr-text);
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+/* Aurora layer rendered as fixed pseudo-element */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 55% 45% at 15%  10%, rgba(94,60,230,0.55) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 45% at 88% 90%, rgba(210,50,200,0.48) 0%, transparent 55%),
+    radial-gradient(ellipse 40% 50% at 50%  48%, rgba(0,148,220,0.22) 0%, transparent 55%),
+    radial-gradient(ellipse 45% 35% at 18%  88%, rgba(0,210,170,0.20) 0%, transparent 50%),
+    radial-gradient(ellipse 35% 30% at 82%  14%, rgba(255,60,120,0.18) 0%, transparent 50%);
+  animation: aurora-a 18s ease-in-out infinite;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: -15%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 40% 35% at 70% 25%, rgba(100,60,255,0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 35% 40% at 25% 65%, rgba(0,200,220,0.20) 0%, transparent 55%);
+  animation: aurora-b 24s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before, body::after { animation: none; }
 }
 
 /* ── Sticky top wrapper (header + week bar + view toggle) ────── */
@@ -55,31 +103,32 @@ body {
   z-index: 100;
 }
 
-/* ── Header ──────────────────────────────────────────────────── */
+/* ── Header — extra Dynamic Island clearance for iPhone 17 Pro ── */
 #header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 13px 16px;
-  padding-top: max(13px, env(safe-area-inset-top));
-  background: rgba(7,9,26,0.72);
-  backdrop-filter: blur(48px) saturate(220%);
-  -webkit-backdrop-filter: blur(48px) saturate(220%);
-  border-bottom: 0.5px solid rgba(255,255,255,0.16);
+  padding: 12px 18px;
+  /* iPhone 17 Pro Dynamic Island: safe-area-inset-top ≈ 59px */
+  padding-top: calc(max(14px, env(safe-area-inset-top)) + 4px);
+  background: rgba(1,3,8,0.55);
+  backdrop-filter: blur(60px) saturate(180%);
+  -webkit-backdrop-filter: blur(60px) saturate(180%);
+  border-bottom: 0.5px solid rgba(255,255,255,0.08);
 }
 
 .app-title {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   font-size: 1rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
-  color: rgba(255,255,255,0.96);
+  letter-spacing: -0.02em;
+  color: rgba(255,255,255,0.94);
 }
 
-.app-logo { width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0; }
-.header-actions { display: flex; align-items: center; gap: 8px; }
+.app-logo { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; }
+.header-actions { display: flex; align-items: center; gap: 6px; }
 
 .icon-btn {
   position: relative;
@@ -167,15 +216,17 @@ body {
   .import-btn-confirm::after { animation: none; }
 }
 
-/* ── Week bar ────────────────────────────────────────────────── */
+/* ── Week bar — floating pill ────────────────────────────────── */
 #week-bar {
   display: flex;
   align-items: center;
-  padding: 8px 14px;
-  background: rgba(11,13,32,0.52);
-  backdrop-filter: blur(32px) saturate(160%);
-  -webkit-backdrop-filter: blur(32px) saturate(160%);
-  border-bottom: 0.5px solid rgba(255,255,255,0.07);
+  padding: 7px 10px;
+  margin: 6px 12px 2px;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 0.5px solid rgba(255,255,255,0.16);
+  border-radius: 50px;
   gap: 8px;
 }
 
@@ -514,7 +565,7 @@ body {
 /* Smooth collapse */
 .day-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1); }
 .day-card.collapsed .day-body { grid-template-rows: 0fr; }
-.day-body-inner { overflow: hidden; }
+.day-body-inner { overflow: hidden; display: flex; flex-direction: column; gap: 5px; padding: 8px 10px 10px; }
 
 /* ── No data / no change ─────────────────────────────────────── */
 .no-data-card {
@@ -555,20 +606,20 @@ body {
   line-height: 1.45;
 }
 
-/* ── Entry row ───────────────────────────────────────────────── */
+/* ── Entry row — crystal tile ────────────────────────────────── */
 .entry {
   display: grid;
   grid-template-columns: 2.2rem 1fr;
   gap: 0 12px;
-  padding: 10px 16px;
-  border-left: 3px solid transparent;
-  border-top: 0.5px solid rgba(0,0,0,0.04);
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.05);
+  border: 0.5px solid rgba(255,255,255,0.09);
 }
-.entry + .entry { border-top-color: rgba(0,0,0,0.05); }
 
-.entry.ausfall    { border-left-width: 4px; border-left-color: var(--ios-red);    background: rgba(255,59,48,0.10);  }
-.entry.vertretung { border-left-width: 4px; border-left-color: var(--ios-orange); background: rgba(255,149,0,0.10);  }
-.entry.raum       { border-left-width: 4px; border-left-color: var(--ios-cyan);   background: rgba(50,173,230,0.10); }
+.entry.ausfall    { background: rgba(255,59,48,0.12);  border-color: rgba(255,69,58,0.28);  box-shadow: 0 2px 18px var(--glow-ausfall),    inset 0 0.5px 0 rgba(255,130,120,0.2); }
+.entry.vertretung { background: rgba(255,149,0,0.11);  border-color: rgba(255,159,10,0.26); box-shadow: 0 2px 18px var(--glow-vertretung), inset 0 0.5px 0 rgba(255,185,80,0.2); }
+.entry.raum       { background: rgba(50,173,230,0.10); border-color: rgba(90,200,250,0.24); box-shadow: 0 2px 18px var(--glow-raum),       inset 0 0.5px 0 rgba(120,220,255,0.2); }
 
 .entry-stunde {
   font-size: 0.84rem;
@@ -1149,14 +1200,6 @@ html[data-dark] {
   --shadow-card: 0 2px 14px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.3);
 }
 
-html[data-dark] body {
-  background:
-    radial-gradient(ellipse 65% 50% at 10%  0%,   rgba(100,88,255,0.22) 0%, transparent 52%),
-    radial-gradient(ellipse 50% 45% at 90% 108%,   rgba(208,64,255,0.18) 0%, transparent 52%),
-    radial-gradient(ellipse 55% 35% at 20%  95%,   rgba(0,220,185,0.12)  0%, transparent 52%),
-    #000000;
-}
-
 /* Cards & day headers */
 html[data-dark] .day-card.today         { border-color: rgba(10,132,255,0.4); box-shadow: var(--shadow-card), 0 0 0 1px rgba(10,132,255,0.22); }
 html[data-dark] .day-card.today .day-name { color: var(--ios-blue); }
@@ -1166,8 +1209,6 @@ html[data-dark] .day-card.collapsed .day-header { border-bottom-color: transpare
 html[data-dark] .day-count              { background: rgba(10,132,255,0.2); }
 html[data-dark] .day-nachrichten        { background: rgba(255,204,0,0.08); border-bottom-color: rgba(255,255,255,0.06); }
 html[data-dark] .nachricht-item         { color: #ffd60a; }
-html[data-dark] .entry                  { border-top-color: rgba(255,255,255,0.05); }
-html[data-dark] .entry + .entry         { border-top-color: rgba(255,255,255,0.06); }
 html[data-dark] .entry.ausfall          { background: rgba(255,69,58,0.18); }
 html[data-dark] .entry.vertretung       { background: rgba(255,159,10,0.17); }
 html[data-dark] .entry.raum             { background: rgba(100,210,255,0.13); }

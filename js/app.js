@@ -127,6 +127,26 @@ async function fetchThroughProxy(url, hdrs, debugLines) {
   const credUrl = urlWithCreds(url, hdrs);
   const shortName = p => p.replace(/^https?:\/\//, '').split('/')[0].split('?')[0];
 
+  // Try the user's own Cloudflare Worker first (most reliable)
+  const settings = loadSettings();
+  if (settings.proxy) {
+    try {
+      const workerBase = settings.proxy.replace(/\/$/, '');
+      const auth = (hdrs || {})['Authorization'];
+      const b64 = auth ? auth.replace(/^Basic\s+/i, '') : '';
+      const workerUrl = `${workerBase}?url=${encodeURIComponent(url)}${b64 ? '&auth=' + encodeURIComponent(b64) : ''}`;
+      const r = await fetch(workerUrl);
+      if (r.ok) {
+        const buf = await r.arrayBuffer();
+        const text = decodeWithCharset(buf, r.headers.get('content-type') || '');
+        if (text.length > 100) return { html: text, proxy: workerBase };
+      }
+      debugLines && debugLines.push(`  ${shortName(workerBase)}: HTTP ${r.status}`);
+    } catch (e) {
+      debugLines && debugLines.push(`  Eigener Proxy: ${e.message}`);
+    }
+  }
+
   for (const proxy of PROXIES) {
     // Attempt 1: Authorization header
     try {
@@ -1306,6 +1326,7 @@ function openSettings() {
   document.getElementById('s-user').value = s.user || '';
   document.getElementById('s-pass').value = s.pass || '';
   document.getElementById('s-klasse').value = s.klasse || '';
+  document.getElementById('s-proxy').value = s.proxy || '';
   document.getElementById('s-darkmode').checked = !!s.dark;
   document.getElementById('settings-overlay').classList.remove('hidden');
 }
@@ -1408,6 +1429,7 @@ document.addEventListener('DOMContentLoaded', () => {
       user:   document.getElementById('s-user').value.trim(),
       pass:   document.getElementById('s-pass').value,
       klasse: document.getElementById('s-klasse').value.trim(),
+      proxy:  document.getElementById('s-proxy').value.trim(),
       dark:   document.getElementById('s-darkmode').checked,
     };
     saveSettings(s);

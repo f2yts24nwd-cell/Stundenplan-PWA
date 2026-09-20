@@ -6,7 +6,13 @@ const STUNDENPLAN_KEY  = 'vplan_stundenplan';
 const SNAPSHOT_KEY     = 'vplan_snapshot';
 const LAST_UPDATED_KEY = 'vplan_last_updated';
 const HISTORY_KEY      = 'vplan_history';
-const PROXIES = ['https://corsproxy.io/?', 'https://api.allorigins.win/raw?url='];
+const PROXIES = [
+  'https://corsproxy.io/?',
+  'https://api.allorigins.win/raw?url=',
+  'https://api.codetabs.com/v1/proxy?quest=',
+  'https://cors.eu.org/',
+  'https://proxy.cors.sh/',
+];
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const SP_PERIODS = 10;
 const DAY_NAMES = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -100,17 +106,52 @@ function decodeWithCharset(buf, contentType) {
   return new TextDecoder(charset, { fatal: false }).decode(buf);
 }
 
+// Build a URL with credentials embedded (https://user:pass@host/path).
+// Some CORS proxies strip the Authorization header but still forward URL-embedded creds.
+function urlWithCreds(url, hdrs) {
+  const auth = (hdrs || {})['Authorization'];
+  if (!auth) return null;
+  try {
+    const b64 = auth.replace(/^Basic\s+/i, '');
+    const creds = atob(b64);
+    const colon = creds.indexOf(':');
+    if (colon < 0) return null;
+    const parsed = new URL(url);
+    parsed.username = encodeURIComponent(creds.slice(0, colon));
+    parsed.password = encodeURIComponent(creds.slice(colon + 1));
+    return parsed.href;
+  } catch { return null; }
+}
+
 async function fetchThroughProxy(url, hdrs, debugLines) {
+  const credUrl = urlWithCreds(url, hdrs);
+  const shortName = p => p.replace(/^https?:\/\//, '').split('/')[0].split('?')[0];
+
   for (const proxy of PROXIES) {
+    // Attempt 1: Authorization header
     try {
       const r = await fetch(proxy + encodeURIComponent(url), { headers: hdrs });
-      if (r.status === 429) { debugLines && debugLines.push(`  ${proxy.split('?')[0]}: 429`); continue; }
-      const buf = await r.arrayBuffer();
-      const text = decodeWithCharset(buf, r.headers.get('content-type') || '');
-      if (r.ok && text.length > 100) return { html: text, proxy };
-      debugLines && debugLines.push(`  ${proxy.split('?')[0]}: HTTP ${r.status}, ${text.length} ch`);
+      if (r.status === 429) { debugLines && debugLines.push(`  ${shortName(proxy)}: 429 Rate-Limit`); }
+      else {
+        const buf = await r.arrayBuffer();
+        const text = decodeWithCharset(buf, r.headers.get('content-type') || '');
+        if (r.ok && text.length > 100) return { html: text, proxy };
+        debugLines && debugLines.push(`  ${shortName(proxy)}: HTTP ${r.status}, ${text.length} ch`);
+      }
     } catch (e) {
-      debugLines && debugLines.push(`  ${proxy.split('?')[0]}: ${e.message}`);
+      debugLines && debugLines.push(`  ${shortName(proxy)}: ${e.message}`);
+    }
+
+    // Attempt 2: credentials in URL (some proxies strip auth headers but forward URL creds)
+    if (credUrl) {
+      try {
+        const r2 = await fetch(proxy + encodeURIComponent(credUrl), {});
+        if (r2.ok) {
+          const buf2 = await r2.arrayBuffer();
+          const text2 = decodeWithCharset(buf2, r2.headers.get('content-type') || '');
+          if (text2.length > 100) return { html: text2, proxy };
+        }
+      } catch {}
     }
   }
   return { html: '', proxy: '' };
@@ -120,9 +161,21 @@ async function fetchThroughProxy(url, hdrs, debugLines) {
 async function proxyGet(proxyBase, url, hdrs) {
   try {
     const r = await fetch(proxyBase + encodeURIComponent(url), { headers: hdrs });
-    if (!r.ok) return '';
-    const buf = await r.arrayBuffer();
-    return decodeWithCharset(buf, r.headers.get('content-type') || '');
+    if (r.ok) {
+      const buf = await r.arrayBuffer();
+      const text = decodeWithCharset(buf, r.headers.get('content-type') || '');
+      if (text.length > 0) return text;
+    }
+    // Fallback: credentials in URL
+    const cu = urlWithCreds(url, hdrs);
+    if (cu) {
+      const r2 = await fetch(proxyBase + encodeURIComponent(cu), {});
+      if (r2.ok) {
+        const buf2 = await r2.arrayBuffer();
+        return decodeWithCharset(buf2, r2.headers.get('content-type') || '');
+      }
+    }
+    return '';
   } catch { return ''; }
 }
 
@@ -184,7 +237,7 @@ async function fetchPlan(settings, targetDate) {
   // Step 1: fetch the user-configured URL
   debugLines.push(`URL: ${settings.url}`);
   const base = await fetchThroughProxy(settings.url, hdrs, debugLines);
-  if (!base.html) throw new Error('Proxy nicht erreichbar oder Rate Limit. Bitte etwas warten.');
+  if (!base.html) throw new Error(`Alle ${PROXIES.length} CORS-Proxys nicht erreichbar oder gesperrt. Details im Diagnose-Panel. Bitte später erneut versuchen.`);
   debugLines.push(`Basis: ${base.html.length} Zeichen`);
 
   let best = { entries: [], debugLines: [], source: '', hasData: false, nachrichten: {} };

@@ -713,9 +713,16 @@ function checkImportFromUrl() {
   if (!encoded) return;
   const sp = decodeStundenplan(encoded);
   if (!sp || !Array.isArray(sp.cells)) return;
-  history.replaceState({}, '', location.pathname);
   window._pendingImport = sp;
-  document.getElementById('import-banner').classList.remove('hidden');
+  window._pendingImportUrl = location.href;
+  history.replaceState({}, '', location.pathname);
+  const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
+                window.navigator.standalone === true;
+  if (isPWA) {
+    document.getElementById('import-banner').classList.remove('hidden');
+  } else {
+    document.getElementById('pwa-import-sheet').classList.remove('hidden');
+  }
 }
 
 // ── Timetable week view ────────────────────────────────────────────────────
@@ -1571,7 +1578,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => { btn.textContent = 'Kopieren'; }, 2200);
   });
 
-  // Import from share link
+  // Import from share link (small banner, PWA mode)
   document.getElementById('import-confirm-btn').addEventListener('click', () => {
     if (window._pendingImport) {
       saveStundenplan(window._pendingImport);
@@ -1583,6 +1590,54 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('import-cancel-btn').addEventListener('click', () => {
     window._pendingImport = null;
     document.getElementById('import-banner').classList.add('hidden');
+  });
+
+  // PWA import sheet (browser mode — prominent bottom sheet)
+  document.getElementById('pwa-import-confirm-btn').addEventListener('click', () => {
+    if (window._pendingImport) {
+      saveStundenplan(window._pendingImport);
+      updateViewToggleVisibility();
+      window._pendingImport = null;
+    }
+    document.getElementById('pwa-import-actions').classList.add('hidden');
+    document.getElementById('pwa-import-success').classList.remove('hidden');
+  });
+  document.getElementById('pwa-import-copy-btn').addEventListener('click', async () => {
+    const url = window._pendingImportUrl || '';
+    const btn = document.getElementById('pwa-import-copy-btn');
+    try {
+      await navigator.clipboard.writeText(url);
+      btn.textContent = '✓ Kopiert';
+    } catch {
+      btn.textContent = 'Nicht möglich';
+    }
+    setTimeout(() => { btn.textContent = 'Link kopieren'; }, 2200);
+  });
+  document.getElementById('pwa-import-close-btn').addEventListener('click', () => {
+    document.getElementById('pwa-import-sheet').classList.add('hidden');
+  });
+
+  // Link-import in settings: paste a share URL directly into the PWA
+  document.getElementById('sp-link-import-btn').addEventListener('click', () => {
+    const input = document.getElementById('sp-link-input');
+    const raw = input.value.trim();
+    if (!raw) return;
+    let encoded = null;
+    try {
+      encoded = new URL(raw.includes('://') ? raw : 'https://x/?' + raw).searchParams.get('sp');
+    } catch { encoded = null; }
+    if (!encoded) {
+      encoded = new URLSearchParams(raw.includes('?') ? raw.split('?')[1] : raw).get('sp');
+    }
+    if (!encoded) { alert('Kein gültiger Stundenplan-Link.'); return; }
+    const sp = decodeStundenplan(encoded);
+    if (!sp || !Array.isArray(sp.cells)) { alert('Link konnte nicht gelesen werden.'); return; }
+    saveStundenplan(sp);
+    updateViewToggleVisibility();
+    input.value = '';
+    const btn = document.getElementById('sp-link-import-btn');
+    btn.textContent = '✓ Importiert';
+    setTimeout(() => { btn.textContent = 'Importieren'; }, 2200);
   });
 
   checkImportFromUrl();

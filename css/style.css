@@ -1296,6 +1296,124 @@ html[data-dark] .import-banner          { background: rgba(22,22,30,0.97); }
 html[data-dark] .import-banner-text     { color: rgba(255,255,255,0.9); }
 html[data-dark] .import-btn-cancel      { background: rgba(255,255,255,0.12); color: rgba(235,235,245,0.48); }
 
+/* ── PWA import sheet (browser mode) ────────────────────────── */
+#pwa-import-sheet { align-items: flex-end; padding: 0; }
+.pwa-import-card {
+  width: 100%;
+  background: rgba(242,242,247,0.98);
+  backdrop-filter: blur(48px) saturate(200%);
+  -webkit-backdrop-filter: blur(48px) saturate(200%);
+  border-radius: 20px 20px 0 0;
+  padding: 0 20px max(28px, env(safe-area-inset-bottom)) 20px;
+  animation: sheet-up 0.3s cubic-bezier(0.32,0.72,0,1);
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.14);
+}
+.pwa-import-handle {
+  width: 36px; height: 4px;
+  background: rgba(0,0,0,0.16); border-radius: 2px;
+  margin: 10px auto 20px;
+}
+.pwa-import-header {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; margin-bottom: 20px;
+}
+.pwa-import-icon-wrap {
+  width: 58px; height: 58px;
+  background: linear-gradient(135deg, var(--ios-blue), #5ac8fa);
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; margin-bottom: 12px;
+  box-shadow: 0 4px 16px rgba(0,122,255,0.3);
+}
+.pwa-import-title {
+  font-size: 1.1rem; font-weight: 700; color: #1c1c1e;
+  letter-spacing: -0.02em; margin: 0 0 4px;
+}
+.pwa-import-sub { font-size: 0.84rem; color: rgba(60,60,67,0.6); margin: 0; }
+.pwa-import-big-btn {
+  width: 100%; padding: 15px; font-size: 1rem;
+  text-align: center; margin-bottom: 16px;
+}
+.pwa-install-guide {
+  background: rgba(118,118,128,0.08);
+  border-radius: 14px; padding: 14px; margin-bottom: 14px;
+}
+.pwa-install-guide-title {
+  font-size: 0.68rem; font-weight: 700; color: rgba(60,60,67,0.5);
+  text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px;
+}
+.pwa-install-steps { display: flex; flex-direction: column; gap: 8px; }
+.pwa-step {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: 0.84rem; color: #1c1c1e; line-height: 1.4;
+}
+.pwa-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; flex-shrink: 0;
+  background: var(--ios-blue); color: #fff;
+  border-radius: 50%; font-size: 0.72rem; font-weight: 700;
+}
+.pwa-install-divider {
+  font-size: 0.73rem; color: rgba(60,60,67,0.5); font-weight: 600;
+  text-align: center; margin: 12px 0 10px; position: relative;
+}
+.pwa-install-divider::before,
+.pwa-install-divider::after {
+  content: '';
+  position: absolute; top: 50%; width: 28%; height: 0.5px;
+  background: rgba(60,60,67,0.2); transform: translateY(-50%);
+}
+.pwa-install-divider::before { left: 0; }
+.pwa-install-divider::after  { right: 0; }
+.pwa-import-copy-btn { width: 100%; text-align: center; }
+.pwa-import-success {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; padding: 10px 0 6px;
+}
+.pwa-import-success-icon {
+  width: 62px; height: 62px;
+  background: rgba(48,209,88,0.14); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ios-green); margin-bottom: 14px;
+}
+.pwa-import-success-text {
+  font-size: 0.96rem; color: #1c1c1e; line-height: 1.55; margin: 0 0 18px;
+}
+/* dark */
+html[data-dark] .pwa-import-card         { background: rgba(22,22,30,0.98); }
+html[data-dark] .pwa-import-handle       { background: rgba(255,255,255,0.2); }
+html[data-dark] .pwa-import-title        { color: rgba(255,255,255,0.92); }
+html[data-dark] .pwa-import-sub          { color: rgba(235,235,245,0.5); }
+html[data-dark] .pwa-install-guide       { background: rgba(255,255,255,0.06); }
+html[data-dark] .pwa-install-guide-title { color: rgba(235,235,245,0.4); }
+html[data-dark] .pwa-step                { color: rgba(255,255,255,0.88); }
+html[data-dark] .pwa-install-divider     { color: rgba(235,235,245,0.4); }
+html[data-dark] .pwa-install-divider::before,
+html[data-dark] .pwa-install-divider::after { background: rgba(255,255,255,0.1); }
+html[data-dark] .pwa-import-success-text { color: rgba(255,255,255,0.9); }
+
+/* ── Settings: paste a share URL ────────────────────────────── */
+.sp-link-import-label {
+  font-size: 0.69rem; font-weight: 600;
+  color: rgba(60,60,67,0.55); text-transform: uppercase;
+  letter-spacing: 0.06em; margin: 14px 0 6px;
+}
+.sp-link-import-row { display: flex; gap: 8px; align-items: stretch; }
+.sp-link-import-row input {
+  flex: 1; padding: 11px 13px; border: none;
+  border-radius: var(--radius-xs); font-size: 0.88rem; color: #1c1c1e;
+  background: rgba(118,118,128,0.12); outline: none;
+  -webkit-appearance: none; transition: background 0.15s, box-shadow 0.15s;
+}
+.sp-link-import-row input:focus {
+  background: rgba(0,122,255,0.07);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.22);
+}
+.sp-link-import-row .btn-primary { padding: 11px 16px; font-size: 0.84rem; white-space: nowrap; }
+html[data-dark] .sp-link-import-label { color: rgba(235,235,245,0.48); }
+html[data-dark] .sp-link-import-row input { background: rgba(118,118,128,0.22); color: rgba(255,255,255,0.9); }
+html[data-dark] .sp-link-import-row input:focus { background: rgba(10,132,255,0.12); box-shadow: 0 0 0 3px rgba(10,132,255,0.28); }
+
 /* ── Debug details (Diagnose) ────────────────────────────────── */
 .debug-details {
   margin: 8px 16px;

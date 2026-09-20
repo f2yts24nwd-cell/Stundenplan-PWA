@@ -143,6 +143,14 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left:auto"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
 
+      <!-- Link-import: paste a share URL directly into the PWA -->
+      <div class="settings-divider"></div>
+      <p class="sp-link-import-label">Stundenplan-Link einfügen</p>
+      <div class="sp-link-import-row">
+        <input type="url" id="sp-link-input" placeholder="https://…?sp=…" autocomplete="off">
+        <button type="button" id="sp-link-import-btn" class="btn-primary">Importieren</button>
+      </div>
+
     </div>
   </div>
 
@@ -364,6 +372,52 @@
       </div>
 
       <div id="analytics-body" class="analytics-body"></div>
+    </div>
+  </div>
+
+  <!-- ── PWA import sheet (when share link opened in browser) ── -->
+  <div id="pwa-import-sheet" class="overlay pwa-import-overlay hidden" role="dialog" aria-modal="true" aria-label="Stundenplan importieren">
+    <div class="pwa-import-card">
+      <div class="pwa-import-handle"></div>
+
+      <div class="pwa-import-header">
+        <div class="pwa-import-icon-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <h3 class="pwa-import-title">Stundenplan empfangen</h3>
+        <p class="pwa-import-sub">Jemand hat dir einen Stundenplan geteilt.</p>
+      </div>
+
+      <div id="pwa-import-actions">
+        <button id="pwa-import-confirm-btn" class="btn-primary pwa-import-big-btn">Stundenplan importieren</button>
+
+        <div class="pwa-install-guide">
+          <p class="pwa-install-guide-title">Was passiert dann?</p>
+          <div class="pwa-install-steps">
+            <div class="pwa-step"><span class="pwa-step-num">1</span><span>Auf <strong>„Importieren"</strong> tippen – Stundenplan wird gespeichert</span></div>
+            <div class="pwa-step"><span class="pwa-step-num">2</span><span><strong>LMG Vplan</strong> auf dem Home Screen öffnen – Stundenplan ist schon drin</span></div>
+          </div>
+          <div class="pwa-install-divider">App noch nicht installiert?</div>
+          <div class="pwa-install-steps">
+            <div class="pwa-step"><span class="pwa-step-num">A</span><span>Erst oben importieren</span></div>
+            <div class="pwa-step"><span class="pwa-step-num">B</span><span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+              Teilen → <strong>„Zum Home-Bildschirm"</strong>
+            </span></div>
+            <div class="pwa-step"><span class="pwa-step-num">C</span><span>App öffnen – Stundenplan bereits drin</span></div>
+          </div>
+        </div>
+
+        <button id="pwa-import-copy-btn" class="btn-secondary pwa-import-copy-btn">Link kopieren</button>
+      </div>
+
+      <div id="pwa-import-success" class="pwa-import-success hidden">
+        <div class="pwa-import-success-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <p class="pwa-import-success-text">Importiert! Öffne jetzt<br><strong>LMG Vplan</strong> auf deinem Home Screen.</p>
+        <button id="pwa-import-close-btn" class="btn-secondary">Schließen</button>
+      </div>
     </div>
   </div>
 
